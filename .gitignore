@@ -1,0 +1,19 @@
+# Compiled C binary
+vulncheck
+
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Temp files from the analyzer
+/tmp/vc_*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+.claude/

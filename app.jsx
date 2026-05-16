@@ -1,0 +1,1044 @@
+const { useState, useEffect, useMemo, useRef, useCallback, useId } = React;
+
+/* ------------------------------------------------------------------ */
+/* Etheral Shadow — adapted from 21st.dev (framer-motion → rAF)        */
+/* ------------------------------------------------------------------ */
+
+function mapRange(value, fromLow, fromHigh, toLow, toHigh) {
+  if (fromLow === fromHigh) return toLow;
+  return toLow + ((value - fromLow) / (fromHigh - fromLow)) * (toHigh - toLow);
+}
+
+function EtheralShadow({
+  sizing = 'fill',
+  color = 'rgba(128,128,128,1)',
+  animation,
+  noise,
+  style,
+  className,
+}) {
+  const rawId = useId().replace(/:/g, '');
+  const filterId = `etheral-${rawId}`;
+  const matrixRef = useRef(null);
+
+  const animationEnabled = animation && animation.scale > 0;
+  const displacementScale = animation ? mapRange(animation.scale, 1, 100, 20, 100) : 0;
+  const animationDuration = animation ? mapRange(animation.speed, 1, 100, 1000, 50) : 1;
+
+  useEffect(() => {
+    if (!animationEnabled || !matrixRef.current) return;
+    const totalMs = (animationDuration / 25) * 1000;
+    let raf, start;
+    const tick = (t) => {
+      if (start == null) start = t;
+      const v = (((t - start) % totalMs) / totalMs) * 360;
+      if (matrixRef.current) matrixRef.current.setAttribute('values', String(v));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [animationEnabled, animationDuration]);
+
+  const maskUrl = "url('assets/shadow-mask.png')";
+
+  return (
+    <div
+      className={className}
+      style={{ overflow: 'hidden', position: 'relative', width: '100%', height: '100%', ...style }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: -displacementScale,
+          filter: animationEnabled ? `url(#${filterId}) blur(4px)` : 'none',
+        }}
+      >
+        {animationEnabled && (
+          <svg style={{ position: 'absolute' }}>
+            <defs>
+              <filter id={filterId}>
+                <feTurbulence
+                  result="undulation"
+                  numOctaves="2"
+                  baseFrequency={`${mapRange(animation.scale, 0, 100, 0.001, 0.0005)},${mapRange(animation.scale, 0, 100, 0.004, 0.002)}`}
+                  seed="0"
+                  type="turbulence"
+                />
+                <feColorMatrix ref={matrixRef} in="undulation" type="hueRotate" values="180" />
+                <feColorMatrix
+                  in="dist"
+                  result="circulation"
+                  type="matrix"
+                  values="4 0 0 0 1  4 0 0 0 1  4 0 0 0 1  1 0 0 0 0"
+                />
+                <feDisplacementMap in="SourceGraphic" in2="circulation" scale={displacementScale} result="dist" />
+                <feDisplacementMap in="dist" in2="undulation" scale={displacementScale} result="output" />
+              </filter>
+            </defs>
+          </svg>
+        )}
+        <div
+          style={{
+            backgroundColor: color,
+            maskImage: maskUrl,
+            WebkitMaskImage: maskUrl,
+            maskSize: sizing === 'stretch' ? '100% 100%' : 'cover',
+            WebkitMaskSize: sizing === 'stretch' ? '100% 100%' : 'cover',
+            maskRepeat: 'no-repeat',
+            WebkitMaskRepeat: 'no-repeat',
+            maskPosition: 'center',
+            WebkitMaskPosition: 'center',
+            width: '100%',
+            height: '100%',
+          }}
+        />
+      </div>
+
+      {noise && noise.opacity > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url("assets/shadow-noise.png")`,
+            backgroundSize: noise.scale * 200,
+            backgroundRepeat: 'repeat',
+            opacity: noise.opacity / 2,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Constants                                                            */
+/* ------------------------------------------------------------------ */
+
+const SAMPLE_CODE = `#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void greet(const char *name) {
+    char buf[32];
+    strcpy(buf, name);                  // user input copied without bounds
+    printf(name);                       // user input as format string
+    printf("Hello, %s\\n", buf);
+}
+
+int handle(int argc, char *argv[]) {
+    char *cmd = malloc(128);
+    sprintf(cmd, "ls -la %s", argv[1]); // unsanitized shell input
+    system(cmd);
+
+    free(cmd);
+    printf("ran: %s\\n", cmd);          // use-after-free
+
+    if (access("/tmp/data.log", R_OK) == 0) {
+        FILE *f = fopen("/tmp/data.log", "r");   // TOCTTOU between check & open
+        // ...
+        fclose(f);
+    }
+    return 0;
+}
+`;
+
+const LANGUAGES = [
+  { id: 'c', label: 'C' },
+];
+
+const SEVERITY = {
+  HIGH:   { label: 'HIGH',   color: '#FF5577', tint: 'rgba(255,85,119,0.10)',  text: '#FFB7C5', glow: 'glow-high', hair: 'top-hair-high' },
+  MEDIUM: { label: 'MEDIUM', color: '#FFB547', tint: 'rgba(255,181,71,0.10)',  text: '#FFDFAA', glow: 'glow-med',  hair: 'top-hair-med'  },
+  LOW:    { label: 'LOW',    color: '#5EC7FF', tint: 'rgba(94,199,255,0.10)',  text: '#B0E0FF', glow: 'glow-low',  hair: 'top-hair-low'  },
+};
+
+const VULN_TYPES = [
+  'Buffer Overflow',
+  'Format String',
+  'Command Injection',
+  'Use-After-Free',
+  'Double Free',
+  'TOCTTOU',
+];
+
+const SCAN_MESSAGES = [
+  'tokenizing source',
+  'building AST',
+  'tracing data flow',
+  'matching CWE patterns',
+  'inspecting allocations',
+  'auditing format strings',
+  'evaluating taint paths',
+  'compiling findings',
+];
+
+/* ------------------------------------------------------------------ */
+/* Icons                                                                */
+/* ------------------------------------------------------------------ */
+
+const I = {
+  shield: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M12 2.5L3.5 6v6c0 5 3.5 8.5 8.5 10 5-1.5 8.5-5 8.5-10V6L12 2.5z" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M8.5 12.2l2.4 2.4 4.6-4.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  bolt: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    </svg>
+  ),
+  check: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  warn: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M12 9v4M12 17h.01M3.5 18l8-13.5a1 1 0 011.7 0L21 18a1 1 0 01-.85 1.5h-16A1 1 0 013.5 18z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/>
+    </svg>
+  ),
+  bug: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <rect x="7" y="7" width="10" height="12" rx="5" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M9 5l1 2M15 5l-1 2M4 11h3M17 11h3M4 15h3M17 15h3M4 19h3M17 19h3M12 11v8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  arrowR: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M5 12h14m0 0l-5-5m5 5l-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  copy: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>
+  ),
+  reset: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M4 4v6h6M20 20v-6h-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M20 10A8 8 0 006 6M4 14a8 8 0 0014 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  fix: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" {...p}>
+      <path d="M14.7 6.3a4 4 0 00-5.6 5.6L4 17v3h3l5.1-5.1a4 4 0 005.6-5.6l-3 3-2-2 3-3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    </svg>
+  ),
+};
+
+/* ------------------------------------------------------------------ */
+/* Background                                                           */
+/* ------------------------------------------------------------------ */
+
+function Background() {
+  return (
+    <div aria-hidden className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+      {/* base dark wash */}
+      <div className="absolute inset-0" style={{ background: 'var(--bg-0)' }}></div>
+
+      {/* Etheral Shadow — tinted to harmonize with navy panels */}
+      <div className="absolute inset-0">
+        <EtheralShadow
+          sizing="fill"
+          color="rgba(110, 140, 190, 1)"
+          animation={{ scale: 100, speed: 90 }}
+          noise={{ opacity: 0.6, scale: 1.2 }}
+        />
+      </div>
+
+      {/* mint chromatic accent — slow, subtle */}
+      <div className="absolute inset-0" style={{ opacity: 0.45, mixBlendMode: 'screen' }}>
+        <EtheralShadow
+          sizing="fill"
+          color="rgba(124, 255, 205, 0.55)"
+          animation={{ scale: 70, speed: 50 }}
+          noise={{ opacity: 0, scale: 1 }}
+        />
+      </div>
+
+      {/* subtle vignette so panel text remains legible at edges */}
+      <div className="absolute inset-0" style={{
+        background: 'radial-gradient(ellipse 90% 70% at 50% 40%, transparent 0%, rgba(6,8,15,0.35) 70%, rgba(6,8,15,0.7) 100%)'
+      }}></div>
+
+      {/* very faint grid for tech texture */}
+      <div className="absolute inset-0 grid-bg" style={{ opacity: 0.35 }}></div>
+
+      {/* horizon line */}
+      <div className="absolute left-0 right-0 top-[420px] h-px bg-gradient-to-r from-transparent via-[rgba(94,199,255,0.18)] to-transparent"></div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Logo + Header                                                        */
+/* ------------------------------------------------------------------ */
+
+function Logo() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="relative w-9 h-9 grid place-items-center rounded-md border border-[var(--bd-2)] bg-[var(--bg-2)] overflow-hidden">
+        <div className="absolute inset-0 opacity-50" style={{background: 'radial-gradient(circle at 30% 20%, rgba(124,255,205,0.35), transparent 60%)'}}></div>
+        <I.shield className="w-4 h-4 text-[var(--accent)] relative" />
+        <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_10px_var(--accent)]"></span>
+      </div>
+      <div className="leading-none">
+        <div className="font-display font-semibold text-[18px] tracking-tight">
+          Vuln<span className="text-[var(--accent)]">Check</span>
+        </div>
+        <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--ink-2)] mt-1">v2.4 · static analysis</div>
+      </div>
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <header className="relative z-20 border-b border-[var(--bd-1)] bg-[rgba(11,16,32,0.55)] backdrop-blur-xl">
+      <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between">
+        <Logo />
+        <nav className="hidden md:flex items-center gap-0.5 font-mono text-[11px] uppercase tracking-wider">
+          {['scanner','cwe catalog','lessons','docs'].map((x, i) => (
+            <a key={x} href="#" className={`px-3 py-1.5 rounded-md transition ${i===0 ? 'text-[var(--ink-0)] bg-[var(--bg-2)] border border-[var(--bd-1)]' : 'text-[var(--ink-2)] hover:text-[var(--ink-0)]'}`}>{x}</a>
+          ))}
+        </nav>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-[var(--bg-2)] border border-[var(--bd-1)]">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inset-0 rounded-full bg-[var(--accent)] pulse-dot"></span>
+              <span className="rounded-full h-1.5 w-1.5 bg-[var(--accent)]"></span>
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-1)]">engine online</span>
+          </div>
+          <button className="font-mono text-[11px] uppercase tracking-wider px-3 py-1.5 rounded-md bg-[var(--bg-2)] border border-[var(--bd-1)] hover:border-[var(--bd-2)] text-[var(--ink-1)]">sign in</button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Hero                                                                 */
+/* ------------------------------------------------------------------ */
+
+function Hero() {
+  return (
+    <section className="relative z-10">
+      <div className="max-w-[1400px] mx-auto px-6 pt-14 pb-10">
+        <div className="flex items-center gap-2 mb-5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--accent)]">— LAB · 03</span>
+          <span className="h-px w-12 bg-[var(--bd-2)]"></span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--ink-2)]">secure systems</span>
+        </div>
+        <h1 className="font-display font-semibold text-[56px] md:text-[68px] leading-[0.95] tracking-[-0.03em] max-w-[920px]">
+          See your vulnerabilities<br/>
+          <span className="text-[var(--ink-2)]">before</span> an attacker does.
+        </h1>
+        <p className="mt-6 max-w-[640px] text-[15px] leading-relaxed text-[var(--ink-1)]">
+          Paste low-level code in C, C++, Rust, or Go. VulnCheck performs taint-aware static
+          analysis to surface memory safety bugs, format string flaws, injection paths, and
+          time-of-check races — with line-by-line explanations and remediation patterns built for learners.
+        </p>
+        <div className="mt-7 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+          {VULN_TYPES.map(v => (
+            <span key={v} className="px-2.5 py-1 rounded-full border border-[var(--bd-1)] bg-[var(--bg-1)]">{v}</span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Editor Panel                                                         */
+/* ------------------------------------------------------------------ */
+
+function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUpload, scanning, error }) {
+  const taRef = useRef(null);
+  const gutterRef = useRef(null);
+
+  const lineCount = useMemo(() => Math.max(1, code.split('\n').length), [code]);
+  const lines = useMemo(() => Array.from({length: lineCount}, (_, i) => i + 1), [lineCount]);
+
+  // sync scroll between gutter and textarea
+  const onScroll = () => {
+    if (gutterRef.current && taRef.current) {
+      gutterRef.current.scrollTop = taRef.current.scrollTop;
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ta = taRef.current;
+      const start = ta.selectionStart, end = ta.selectionEnd;
+      const v = code;
+      const next = v.substring(0, start) + '    ' + v.substring(end);
+      setCode(next);
+      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 4; });
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      onAnalyze();
+    }
+  };
+
+  return (
+    <div className="relative panel overflow-hidden">
+      {/* corner crosshairs */}
+      <span className="corner border-t border-l absolute top-2 left-2"></span>
+      <span className="corner border-t border-r absolute top-2 right-2"></span>
+      <span className="corner border-b border-l absolute bottom-2 left-2"></span>
+      <span className="corner border-b border-r absolute bottom-2 right-2"></span>
+
+      {/* Title bar */}
+      <div className="flex items-center justify-between px-4 h-11 border-b border-[var(--bd-1)] bg-[rgba(7,10,20,0.5)]">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FF5577]/70"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FFB547]/70"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)]/70"></span>
+          </div>
+          <span className="font-mono text-[11px] text-[var(--ink-1)]">
+            ~/lab/<span className="text-[var(--ink-0)]">handler.{language === 'cpp' ? 'cpp' : language === 'rust' ? 'rs' : language === 'go' ? 'go' : 'c'}</span>
+          </span>
+          <span className="px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider rounded bg-[var(--bg-3)] text-[var(--ink-1)] border border-[var(--bd-1)]">unsaved</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <select
+              value={language}
+              onChange={e => setLanguage(e.target.value)}
+              className="lang-select font-mono text-[11px] uppercase tracking-wider bg-[var(--bg-2)] border border-[var(--bd-1)] hover:border-[var(--bd-2)] text-[var(--ink-0)] rounded-md pl-2.5 py-1 cursor-pointer focus:outline-none focus:border-[var(--accent)]/40"
+            >
+              {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={() => setCode(SAMPLE_CODE)}
+            title="Reset to sample"
+            className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1"
+          >
+            <I.reset className="w-3 h-3" /> sample
+          </button>
+          {onFileUpload && <FileUploadButton onFile={onFileUpload} scanning={scanning} />}
+        </div>
+      </div>
+
+      {/* Editor body */}
+      <div className="editor-shell relative">
+        {/* scanline overlay */}
+        {scanning && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-10">
+            <div className="scanline-y absolute inset-x-0 h-24" style={{
+              background: 'linear-gradient(180deg, transparent, rgba(124,255,205,0.18) 50%, transparent)',
+              boxShadow: '0 0 40px rgba(124,255,205,0.35)',
+            }}></div>
+            <div className="absolute inset-0" style={{
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent 0 3px, rgba(124,255,205,0.025) 3px 4px)',
+            }}></div>
+          </div>
+        )}
+
+        <div className="flex" style={{height: 420}}>
+          <div ref={gutterRef} className="font-mono text-[12.5px] editor-gutter shrink-0 w-12 py-4 pr-3 overflow-hidden">
+            {lines.map(n => <div key={n} style={{lineHeight: 1.65}}>{String(n).padStart(2, '0')}</div>)}
+          </div>
+          <textarea
+            ref={taRef}
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            onScroll={onScroll}
+            onKeyDown={onKeyDown}
+            spellCheck={false}
+            disabled={scanning}
+            className="editor-textarea font-mono text-[12.5px] flex-1 py-4 pr-4 outline-none resize-none"
+          />
+        </div>
+
+        {/* Status footer */}
+        <div className="flex items-center justify-between px-4 h-9 border-t border-[var(--bd-1)] bg-[rgba(7,10,20,0.5)] font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+          <div className="flex items-center gap-4">
+            <span>{lineCount} lines</span>
+            <span>{code.length} chars</span>
+            <span className="hidden sm:inline">utf-8</span>
+            <span className="hidden md:inline">spaces · 4</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline">⌘ + ↵ to analyze</span>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${error ? 'bg-[var(--sev-high)]' : 'bg-[var(--accent)]'}`}></span>
+          </div>
+        </div>
+      </div>
+
+      {/* Analyze button area */}
+      <div className="p-4 flex flex-wrap items-center gap-3 border-t border-[var(--bd-1)] bg-[rgba(11,16,32,0.4)]">
+        <button
+          onClick={onAnalyze}
+          disabled={scanning || !code.trim()}
+          className="scan-btn flex items-center gap-2.5 rounded-lg px-5 py-3 font-mono text-[12px] uppercase tracking-[0.18em] disabled:cursor-not-allowed"
+        >
+          {scanning ? (
+            <>
+              <svg viewBox="0 0 24 24" className="w-4 h-4 spin-slow" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="rgba(124,255,205,0.2)" strokeWidth="2"/>
+                <path d="M21 12a9 9 0 00-9-9" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              Scanning…
+            </>
+          ) : (
+            <>
+              <I.bolt className="w-4 h-4 text-[var(--accent)]" />
+              Analyze code
+              <span className="ml-1 font-mono text-[10px] opacity-70">↵</span>
+            </>
+          )}
+        </button>
+
+        <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] flex items-center gap-2">
+          <span className="text-[var(--ink-1)]">model</span>
+          <span className="px-1.5 py-0.5 rounded bg-[var(--bg-2)] border border-[var(--bd-1)]">claude-sonnet-4</span>
+          <span>·</span>
+          <span>structured json</span>
+        </div>
+
+        {error && (
+          <div className="ml-auto flex items-center gap-2 font-mono text-[11px] text-[var(--sev-high)]">
+            <I.warn className="w-3.5 h-3.5" /> {error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Scanning Animation                                                   */
+/* ------------------------------------------------------------------ */
+
+function ScanningState() {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i + 1) % SCAN_MESSAGES.length), 380);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="panel p-6 relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-px overflow-hidden">
+        <div className="absolute inset-0" style={{background: 'linear-gradient(90deg, transparent, var(--accent), transparent)'}}></div>
+      </div>
+      <div className="flex items-center gap-3 mb-5">
+        <div className="relative w-9 h-9 grid place-items-center rounded-md border border-[var(--bd-1)] bg-[var(--bg-2)]">
+          <svg viewBox="0 0 24 24" className="w-4 h-4 spin-slow text-[var(--accent)]" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="rgba(124,255,205,0.2)" strokeWidth="2"/>
+            <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <div className="font-display text-[18px] font-semibold">Static analysis in progress</div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] mt-1">running 6 detector passes</div>
+        </div>
+      </div>
+
+      {/* progress bar */}
+      <div className="relative h-1.5 rounded-full bg-[var(--bg-2)] overflow-hidden border border-[var(--bd-1)]">
+        <div className="absolute inset-y-0 left-0 w-full flow-bg" style={{
+          background: 'linear-gradient(90deg, transparent, rgba(124,255,205,0.6), transparent)',
+          backgroundSize: '40% 100%',
+          animation: 'shimmer 1.8s linear infinite',
+        }}></div>
+      </div>
+
+      {/* log */}
+      <div className="mt-5 font-mono text-[12px] leading-relaxed bg-[var(--bg-1)]/60 border border-[var(--bd-1)] rounded-lg p-4">
+        {SCAN_MESSAGES.slice(0, idx + 1).map((m, i) => (
+          <div key={i} className="flex items-start gap-2">
+            <span className="text-[var(--ink-3)] mt-0.5">[{String(i+1).padStart(2,'0')}]</span>
+            <span className={i === idx ? 'text-[var(--accent)]' : 'text-[var(--ink-1)]'}>
+              {m}{i === idx ? <span className="blink ml-0.5">▍</span> : <span className="text-[var(--ink-3)]"> ✓</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Severity Badge + Summary Bar                                         */
+/* ------------------------------------------------------------------ */
+
+function SeverityBadge({ sev, size = 'sm' }) {
+  const s = SEVERITY[sev] || SEVERITY.LOW;
+  const sizing = size === 'lg' ? 'text-[11px] px-2.5 py-1' : 'text-[10px] px-2 py-0.5';
+  return (
+    <span
+      className={`font-mono uppercase tracking-[0.18em] inline-flex items-center gap-1.5 rounded-md border ${sizing}`}
+      style={{ background: s.tint, borderColor: s.color + '55', color: s.text }}
+    >
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color, boxShadow: `0 0 8px ${s.color}` }}></span>
+      {s.label}
+    </span>
+  );
+}
+
+function SummaryBar({ findings }) {
+  const counts = useMemo(() => {
+    const c = { HIGH: 0, MEDIUM: 0, LOW: 0 };
+    findings.forEach(f => { c[f.severity] = (c[f.severity] || 0) + 1; });
+    return c;
+  }, [findings]);
+
+  const total = findings.length;
+  const score = Math.max(0, 100 - (counts.HIGH*22 + counts.MEDIUM*9 + counts.LOW*3));
+  const scoreColor = score >= 80 ? 'var(--accent)' : score >= 50 ? 'var(--sev-med)' : 'var(--sev-high)';
+
+  return (
+    <div className="panel reveal p-5 flex flex-col md:flex-row md:items-stretch gap-5">
+      {/* Score */}
+      <div className="flex items-center gap-4 md:pr-6 md:border-r border-[var(--bd-1)]">
+        <div className="relative w-16 h-16">
+          <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+            <circle cx="18" cy="18" r="15" fill="none" stroke="var(--bd-1)" strokeWidth="2.5"/>
+            <circle cx="18" cy="18" r="15" fill="none" stroke={scoreColor} strokeWidth="2.5" strokeDasharray={`${(score/100)*94.2} 94.2`} strokeLinecap="round"
+              style={{ filter: `drop-shadow(0 0 6px ${scoreColor})` }} />
+          </svg>
+          <div className="absolute inset-0 grid place-items-center font-display text-[20px] font-semibold" style={{color: scoreColor}}>{score}</div>
+        </div>
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">safety score</div>
+          <div className="font-display text-[15px] font-medium mt-0.5">{total === 0 ? 'No findings' : `${total} finding${total === 1 ? '' : 's'} surfaced`}</div>
+        </div>
+      </div>
+
+      {/* Severity counts */}
+      <div className="flex-1 grid grid-cols-3 gap-3">
+        {['HIGH','MEDIUM','LOW'].map(k => {
+          const s = SEVERITY[k];
+          const n = counts[k];
+          return (
+            <div key={k} className="relative bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5 overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-px" style={{background: `linear-gradient(90deg, transparent, ${s.color}, transparent)`}}></div>
+              <div className="flex items-center justify-between">
+                <SeverityBadge sev={k} />
+                <span className="font-display text-[28px] font-semibold leading-none" style={{color: n > 0 ? s.color : 'var(--ink-3)'}}>{String(n).padStart(2,'0')}</span>
+              </div>
+              <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                {k === 'HIGH' && 'exploit-class'}
+                {k === 'MEDIUM' && 'remediate soon'}
+                {k === 'LOW' && 'best-practice'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Result Card                                                          */
+/* ------------------------------------------------------------------ */
+
+function FindingCard({ f, index }) {
+  const sev = SEVERITY[f.severity] || SEVERITY.LOW;
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <article
+      className={`panel reveal ${sev.glow} relative overflow-hidden`}
+      style={{ animationDelay: `${index * 80}ms` }}
+    >
+      {/* top hairline */}
+      <div className={`absolute inset-x-0 top-0 h-px ${sev.hair}`}></div>
+
+      {/* corners */}
+      <span className="corner border-t border-l absolute top-2 left-2" style={{borderColor: sev.color + '55'}}></span>
+      <span className="corner border-t border-r absolute top-2 right-2" style={{borderColor: sev.color + '55'}}></span>
+
+      <div className="p-5 md:p-6">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <SeverityBadge sev={f.severity} />
+              {f.cwe && (
+                <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--bg-2)] border border-[var(--bd-1)] text-[var(--ink-1)]">
+                  {f.cwe}
+                </span>
+              )}
+              {typeof f.line === 'number' && (
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                  line {f.line}
+                </span>
+              )}
+            </div>
+            <h3 className="font-display font-semibold text-[20px] tracking-tight leading-tight">
+              {f.type || 'Unknown vulnerability'}
+            </h3>
+          </div>
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="shrink-0 w-7 h-7 grid place-items-center rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)]"
+            aria-label={expanded ? 'Collapse' : 'Expand'}
+          >
+            <svg viewBox="0 0 24 24" className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none">
+              <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Snippet */}
+        {f.snippet && (
+          <div className="mb-4 rounded-lg overflow-hidden border" style={{borderColor: sev.color + '33', background: 'rgba(6,9,17,0.65)'}}>
+            <div className="flex items-center justify-between px-3 py-1.5 border-b" style={{borderColor: sev.color + '22'}}>
+              <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-2)]">flagged · {f.cwe || 'snippet'}</span>
+              <span className="font-mono text-[9px] uppercase tracking-wider" style={{color: sev.text}}>▲ vulnerable</span>
+            </div>
+            <pre className="font-mono text-[12.5px] leading-relaxed p-3.5 whitespace-pre-wrap overflow-x-auto" style={{color: '#DCE3F5'}}>
+              <span style={{color: sev.color, textShadow: `0 0 12px ${sev.color}40`}}>{f.snippet}</span>
+            </pre>
+          </div>
+        )}
+
+        {expanded && (
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Explanation */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <I.bug className="w-3.5 h-3.5 text-[var(--ink-2)]" />
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--ink-2)]">why it&rsquo;s dangerous</span>
+              </div>
+              <p className="text-[13.5px] leading-relaxed text-[var(--ink-1)]">{f.explanation || '—'}</p>
+            </div>
+            {/* Fix */}
+            <div className="md:border-l md:pl-4 border-[var(--bd-1)]">
+              <div className="flex items-center gap-2 mb-2">
+                <I.fix className="w-3.5 h-3.5" style={{color: 'var(--accent)'}} />
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{color: 'var(--accent)'}}>suggested fix</span>
+              </div>
+              <p className="text-[13.5px] leading-relaxed text-[var(--ink-1)] whitespace-pre-wrap">{f.fix || '—'}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Empty / Clean states                                                 */
+/* ------------------------------------------------------------------ */
+
+function EmptyState() {
+  return (
+    <div className="panel p-8 text-center">
+      <div className="mx-auto w-12 h-12 grid place-items-center rounded-full bg-[var(--bg-2)] border border-[var(--bd-1)] mb-4">
+        <I.shield className="w-5 h-5 text-[var(--ink-2)]" />
+      </div>
+      <h3 className="font-display font-semibold text-[18px] mb-1.5">Ready when you are</h3>
+      <p className="text-[13px] text-[var(--ink-1)] max-w-md mx-auto leading-relaxed">
+        Drop code into the editor and press <span className="font-mono text-[var(--ink-0)]">Analyze</span>.
+        Findings stream in as the engine completes each detector pass.
+      </p>
+      <div className="mt-5 inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+        <span className="w-1 h-1 rounded-full bg-[var(--ink-2)]"></span>
+        awaiting input
+      </div>
+    </div>
+  );
+}
+
+function CleanState() {
+  return (
+    <div className="panel glow-accent reveal p-8 text-center relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-px" style={{background: 'linear-gradient(90deg, transparent, var(--accent), transparent)'}}></div>
+      <div className="mx-auto w-14 h-14 grid place-items-center rounded-full border mb-4"
+        style={{borderColor: 'rgba(124,255,205,0.4)', background: 'rgba(124,255,205,0.08)', boxShadow: '0 0 30px -6px rgba(124,255,205,0.5)'}}>
+        <I.check className="w-7 h-7" style={{color: 'var(--accent)'}} />
+      </div>
+      <h3 className="font-display font-semibold text-[22px] tracking-tight">No vulnerabilities detected</h3>
+      <p className="text-[13px] text-[var(--ink-1)] mt-2 max-w-md mx-auto leading-relaxed">
+        Across all six detector passes, no instances of the configured vulnerability classes were found.
+      </p>
+      <p className="text-[11px] text-[var(--ink-2)] mt-3 font-mono">
+        static analysis isn&rsquo;t exhaustive — pair with fuzzing &amp; review.
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Backend wiring — local C analysis engine via /analyze               */
+/* ------------------------------------------------------------------ */
+
+function normalizeFindings(data) {
+  if (!data || !Array.isArray(data.findings)) return [];
+  const ALLOWED = new Set(VULN_TYPES);
+  const SEV = new Set(['HIGH','MEDIUM','LOW']);
+  return data.findings
+    .map(f => ({
+      type: ALLOWED.has(f.type) ? f.type : (f.type || 'Unknown'),
+      severity: SEV.has((f.severity || '').toUpperCase()) ? f.severity.toUpperCase() : 'LOW',
+      line: Number.isFinite(f.line) ? f.line : (parseInt(f.line, 10) || null),
+      snippet: typeof f.snippet === 'string' ? f.snippet : '',
+      explanation: typeof f.explanation === 'string' ? f.explanation : '',
+      fix: typeof f.fix === 'string' ? f.fix : '',
+      cwe: typeof f.cwe === 'string' ? f.cwe : '',
+    }))
+    .filter(f => ALLOWED.has(f.type));
+}
+
+/* Send code text to /analyze */
+async function analyzeCode(code) {
+  const res = await fetch('/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, language: 'c' }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Server error ${res.status}`);
+  }
+  return res.json();
+}
+
+/* Send a .c file to /analyze/upload */
+async function analyzeFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/analyze/upload', { method: 'POST', body: fd });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Server error ${res.status}`);
+  }
+  return res.json();
+}
+
+/* ------------------------------------------------------------------ */
+/* File Upload Button component                                         */
+/* ------------------------------------------------------------------ */
+
+function FileUploadButton({ onFile, scanning }) {
+  const inputRef = useRef(null);
+
+  const handleChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    onFile(file);
+    e.target.value = '';
+  };
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".c,text/plain"
+        style={{ display: 'none' }}
+        onChange={handleChange}
+      />
+      <button
+        onClick={() => inputRef.current && inputRef.current.click()}
+        disabled={scanning}
+        title="Upload a .c file"
+        className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+        </svg>
+        upload .c
+      </button>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Root                                                                 */
+/* ------------------------------------------------------------------ */
+
+function App() {
+  const [code, setCode] = useState(SAMPLE_CODE);
+  const [language] = useState('c');
+  const [scanning, setScanning] = useState(false);
+  const [findings, setFindings] = useState(null);
+  const [error, setError] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [uploadedName, setUploadedName] = useState(null);
+  const tStart = useRef(0);
+
+  // elapsed timer
+  useEffect(() => {
+    if (!scanning) return;
+    tStart.current = performance.now();
+    setElapsed(0);
+    const t = setInterval(() => setElapsed((performance.now() - tStart.current) / 1000), 80);
+    return () => clearInterval(t);
+  }, [scanning]);
+
+  const handleResult = useCallback((data) => {
+    if (data.error && (!data.findings || data.findings.length === 0)) {
+      setError(data.error);
+      setFindings([]);
+    } else {
+      setFindings(normalizeFindings(data));
+    }
+  }, []);
+
+  // Analyze pasted / typed code
+  const runAnalysis = useCallback(async () => {
+    if (!code.trim() || scanning) return;
+    setError(null);
+    setScanning(true);
+    setFindings(null);
+    setUploadedName(null);
+    try {
+      const [data] = await Promise.all([
+        analyzeCode(code),
+        new Promise(r => setTimeout(r, 1200)),
+      ]);
+      handleResult(data);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || 'analyzer unavailable — please retry');
+      setFindings([]);
+    } finally {
+      setScanning(false);
+    }
+  }, [code, scanning, handleResult]);
+
+  // Analyze uploaded file
+  const runFileAnalysis = useCallback(async (file) => {
+    if (scanning) return;
+    setError(null);
+    setScanning(true);
+    setFindings(null);
+    setUploadedName(file.name);
+    try {
+      const text = await file.text();
+      setCode(text);
+      const [data] = await Promise.all([
+        analyzeFile(file),
+        new Promise(r => setTimeout(r, 1200)),
+      ]);
+      handleResult(data);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || 'file upload failed — please retry');
+      setFindings([]);
+    } finally {
+      setScanning(false);
+    }
+  }, [scanning, handleResult]);
+
+  return (
+    <div className="min-h-screen relative">
+      <Background />
+      <Header />
+      <Hero />
+
+      <main className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24">
+        <div className="grid lg:grid-cols-[1.15fr_1fr] gap-6 items-start">
+          {/* Left: editor */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-4 bg-[var(--accent)]" style={{boxShadow: '0 0 12px var(--accent)'}}></span>
+                <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">Source</h2>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— paste · edit · upload</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {uploadedName && (
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--accent)] flex items-center gap-1">
+                    <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                    {uploadedName}
+                  </span>
+                )}
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                  C · {code.split('\n').length} ln
+                </span>
+              </div>
+            </div>
+            <EditorPanel
+              code={code} setCode={setCode}
+              language={language} setLanguage={() => {}}
+              onAnalyze={runAnalysis}
+              onFileUpload={runFileAnalysis}
+              scanning={scanning}
+              error={error}
+            />
+
+            {/* Helper strip */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] px-1">
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-[var(--accent)]"></span> taint-aware</span>
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-[var(--accent)]"></span> CWE-mapped</span>
+              <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-[var(--accent)]"></span> teach-by-example</span>
+            </div>
+          </div>
+
+          {/* Right: results */}
+          <div className="space-y-4 lg:sticky lg:top-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-4 bg-[var(--azure)]" style={{boxShadow: '0 0 12px var(--azure)'}}></span>
+                <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">Findings</h2>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— results</span>
+              </div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                {scanning ? `t = ${elapsed.toFixed(1)}s` : (findings === null ? 'idle' : `${findings.length} reported`)}
+              </div>
+            </div>
+
+            {scanning && <ScanningState />}
+
+            {!scanning && findings === null && <EmptyState />}
+
+            {!scanning && findings !== null && findings.length === 0 && !error && <CleanState />}
+
+            {!scanning && findings !== null && findings.length > 0 && (
+              <>
+                <SummaryBar findings={findings} />
+                <div className="space-y-4">
+                  {findings.map((f, i) => <FindingCard key={i} f={f} index={i} />)}
+                </div>
+              </>
+            )}
+
+            {!scanning && error && findings !== null && findings.length === 0 && (
+              <div className="panel p-5 reveal">
+                <div className="flex items-start gap-3">
+                  <I.warn className="w-5 h-5 text-[var(--sev-high)] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-display font-semibold text-[15px]">Analyzer returned an unexpected response</div>
+                    <div className="text-[13px] text-[var(--ink-1)] mt-1 leading-relaxed">{error}. Try simplifying the snippet or re-running.</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+
+      <footer className="relative z-10 border-t border-[var(--bd-1)] bg-[rgba(11,16,32,0.5)] backdrop-blur-xl">
+        <div className="max-w-[1400px] mx-auto px-6 py-5 flex flex-wrap items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+          <div className="flex items-center gap-3">
+            <Logo />
+          </div>
+          <div className="flex items-center gap-4">
+            <span>© 2026 vulncheck labs</span>
+            <span>·</span>
+            <span>built for cs · 4720</span>
+            <span>·</span>
+            <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] pulse-dot"></span> service ok</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
