@@ -275,6 +275,110 @@ const I = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Tooltip                                                              */
+/* ------------------------------------------------------------------ */
+
+function Tooltip({ text, children, side = 'top' }) {
+  const pos = {
+    top:    'bottom-full left-1/2 -translate-x-1/2 mb-2',
+    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
+    right:  'left-full top-1/2 -translate-y-1/2 ml-2',
+    left:   'right-full top-1/2 -translate-y-1/2 mr-2',
+  }[side] ?? 'bottom-full left-1/2 -translate-x-1/2 mb-2';
+  return (
+    <div className="relative group/tt inline-flex">
+      {children}
+      <span className={`absolute ${pos} z-50 pointer-events-none opacity-0 group-hover/tt:opacity-100 transition-opacity duration-150 px-2 py-1 rounded-md bg-[#080F1F] border border-[var(--bd-2)] font-mono text-[10px] text-[var(--ink-0)] whitespace-nowrap shadow-xl`}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Skeleton Loaders                                                     */
+/* ------------------------------------------------------------------ */
+
+function Bone({ className = '' }) {
+  return (
+    <div className={`relative overflow-hidden rounded bg-[var(--bg-2)] border border-[var(--bd-1)]/40 ${className}`}>
+      <div className="shimmer absolute inset-0 w-3/4"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(124,255,205,0.05), transparent)' }}
+      />
+    </div>
+  );
+}
+
+function SkeletonSummaryBar() {
+  return (
+    <div className="panel reveal p-5 flex flex-col md:flex-row md:items-stretch gap-5">
+      <div className="flex items-center gap-4 md:pr-6 md:border-r border-[var(--bd-1)]">
+        <Bone className="w-16 h-16 !rounded-full" />
+        <div className="space-y-2">
+          <Bone className="w-20 h-2.5" />
+          <Bone className="w-36 h-4" />
+        </div>
+      </div>
+      <div className="flex-1 grid grid-cols-3 gap-3">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5">
+            <Bone className="w-14 h-5" />
+            <div className="flex items-end justify-between mt-3 gap-2">
+              <Bone className="w-14 h-7" />
+              <Bone className="w-8 h-9" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SkeletonFindingCard({ index = 0 }) {
+  return (
+    <div className="panel reveal p-5 md:p-6 space-y-4" style={{ animationDelay: `${index * 80}ms` }}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 space-y-2.5">
+          <div className="flex gap-2">
+            <Bone className="w-16 h-5" />
+            <Bone className="w-20 h-5" />
+            <Bone className="w-10 h-5" />
+          </div>
+          <Bone className="w-4/5 h-6" />
+        </div>
+        <Bone className="w-7 h-7 shrink-0" />
+      </div>
+      <Bone className="w-full h-16" />
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-1.5"><Bone className="w-28 h-2.5" /><Bone className="w-full h-12" /></div>
+        <div className="space-y-1.5"><Bone className="w-24 h-2.5" /><Bone className="w-full h-12" /></div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Count-up animation hook                                              */
+/* ------------------------------------------------------------------ */
+
+function useCountUp(target, duration = 550) {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (target === 0) { setVal(0); return; }
+    let raf;
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      setVal(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return val;
+}
+
+/* ------------------------------------------------------------------ */
 /* CWE Catalog Section                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -663,7 +767,7 @@ function Hero() {
 /* Editor Panel                                                         */
 /* ------------------------------------------------------------------ */
 
-function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUpload, scanning, error }) {
+function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUpload, scanning, error, isDirty }) {
   const taRef = useRef(null);
   const gutterRef = useRef(null);
 
@@ -724,13 +828,14 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
               {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           </div>
-          <button
-            onClick={() => setCode(SAMPLE_CODE)}
-            title="Reset to sample"
-            className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1"
-          >
-            <I.reset className="w-3 h-3" /> sample
-          </button>
+          <Tooltip text="Load sample vulnerable code">
+            <button
+              onClick={() => setCode(SAMPLE_CODE)}
+              className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1 transition-colors"
+            >
+              <I.reset className="w-3 h-3" /> sample
+            </button>
+          </Tooltip>
           {onFileUpload && <FileUploadButton onFile={onFileUpload} scanning={scanning} />}
         </div>
       </div>
@@ -786,7 +891,11 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
         <button
           onClick={onAnalyze}
           disabled={scanning || !code.trim()}
-          className="scan-btn flex items-center gap-2.5 rounded-lg px-5 py-3 font-mono text-[12px] uppercase tracking-[0.18em] disabled:cursor-not-allowed"
+          className="scan-btn flex items-center gap-2.5 rounded-lg px-5 py-3 font-mono text-[12px] uppercase tracking-[0.18em] disabled:cursor-not-allowed transition-all"
+          style={isDirty ? {
+            borderColor: 'rgba(124,255,205,0.75)',
+            boxShadow: '0 0 0 1px rgba(124,255,205,0.45), 0 0 28px -4px rgba(124,255,205,0.7), inset 0 1px 0 rgba(124,255,205,0.25)',
+          } : {}}
         >
           {scanning ? (
             <>
@@ -893,6 +1002,28 @@ function SeverityBadge({ sev, size = 'sm' }) {
   );
 }
 
+function SevCountCard({ k, s, n }) {
+  const animated = useCountUp(n);
+  return (
+    <div
+      className="relative bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5 overflow-hidden transition-shadow duration-500"
+      style={n > 0 ? { boxShadow: `0 0 0 1px ${s.color}22, 0 8px 28px -12px ${s.color}40` } : {}}
+    >
+      <div className="absolute inset-x-0 top-0 h-px" style={{background: `linear-gradient(90deg, transparent, ${s.color}, transparent)`}}></div>
+      <SeverityBadge sev={k} />
+      <div className="mt-3 flex items-end justify-between gap-2">
+        <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] leading-tight whitespace-pre-line">
+          {k === 'HIGH' ? 'exploit-\nclass' : k === 'MEDIUM' ? 'remediate\nsoon' : 'best-\npractice'}
+        </div>
+        <span
+          className="font-display text-[36px] font-semibold leading-none shrink-0"
+          style={{color: n > 0 ? s.color : 'var(--ink-3)', textShadow: n > 0 ? `0 0 20px ${s.color}66` : 'none'}}
+        >{animated}</span>
+      </div>
+    </div>
+  );
+}
+
 function SummaryBar({ findings }) {
   const counts = useMemo(() => {
     const c = { HIGH: 0, MEDIUM: 0, LOW: 0 };
@@ -903,6 +1034,8 @@ function SummaryBar({ findings }) {
   const total = findings.length;
   const score = Math.max(0, 100 - (counts.HIGH*22 + counts.MEDIUM*9 + counts.LOW*3));
   const scoreColor = score >= 80 ? 'var(--accent)' : score >= 50 ? 'var(--sev-med)' : 'var(--sev-high)';
+  const animScore = useCountUp(score, 700);
+  const arc = (animScore / 100) * 94.2;
 
   return (
     <div className="panel reveal p-5 flex flex-col md:flex-row md:items-stretch gap-5">
@@ -911,10 +1044,11 @@ function SummaryBar({ findings }) {
         <div className="relative w-16 h-16">
           <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
             <circle cx="18" cy="18" r="15" fill="none" stroke="var(--bd-1)" strokeWidth="2.5"/>
-            <circle cx="18" cy="18" r="15" fill="none" stroke={scoreColor} strokeWidth="2.5" strokeDasharray={`${(score/100)*94.2} 94.2`} strokeLinecap="round"
-              style={{ filter: `drop-shadow(0 0 6px ${scoreColor})` }} />
+            <circle cx="18" cy="18" r="15" fill="none" stroke={scoreColor} strokeWidth="2.5"
+              strokeDasharray={`${arc} 94.2`} strokeLinecap="round"
+              style={{ filter: `drop-shadow(0 0 6px ${scoreColor})`, transition: 'stroke 0.4s' }} />
           </svg>
-          <div className="absolute inset-0 grid place-items-center font-display text-[20px] font-semibold" style={{color: scoreColor}}>{score}</div>
+          <div className="absolute inset-0 grid place-items-center font-display text-[20px] font-semibold" style={{color: scoreColor}}>{animScore}</div>
         </div>
         <div>
           <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">safety score</div>
@@ -924,27 +1058,9 @@ function SummaryBar({ findings }) {
 
       {/* Severity counts */}
       <div className="flex-1 grid grid-cols-3 gap-3">
-        {['HIGH','MEDIUM','LOW'].map(k => {
-          const s = SEVERITY[k];
-          const n = counts[k];
-          return (
-            <div key={k} className="relative bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5 overflow-hidden">
-              <div className="absolute inset-x-0 top-0 h-px" style={{background: `linear-gradient(90deg, transparent, ${s.color}, transparent)`}}></div>
-              <SeverityBadge sev={k} />
-              <div className="mt-3 flex items-end justify-between gap-2">
-                <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] leading-tight">
-                  {k === 'HIGH' && 'exploit-\nclass'}
-                  {k === 'MEDIUM' && 'remediate\nsoon'}
-                  {k === 'LOW' && 'best-\npractice'}
-                </div>
-                <span
-                  className="font-display text-[36px] font-semibold leading-none shrink-0"
-                  style={{color: n > 0 ? s.color : 'var(--ink-3)', textShadow: n > 0 ? `0 0 20px ${s.color}66` : 'none'}}
-                >{n}</span>
-              </div>
-            </div>
-          );
-        })}
+        {['HIGH','MEDIUM','LOW'].map(k => (
+          <SevCountCard key={k} k={k} s={SEVERITY[k]} n={counts[k]} />
+        ))}
       </div>
     </div>
   );
@@ -957,10 +1073,19 @@ function SummaryBar({ findings }) {
 function FindingCard({ f, index }) {
   const sev = SEVERITY[f.severity] || SEVERITY.LOW;
   const [expanded, setExpanded] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const copySnippet = () => {
+    if (!f.snippet) return;
+    navigator.clipboard.writeText(f.snippet).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
 
   return (
     <article
-      className={`panel reveal ${sev.glow} relative overflow-hidden`}
+      className={`panel reveal ${sev.glow} relative overflow-hidden transition-all duration-300 hover:translate-y-[-1px]`}
       style={{ animationDelay: `${index * 80}ms` }}
     >
       {/* top hairline */}
@@ -991,15 +1116,17 @@ function FindingCard({ f, index }) {
               {f.type || 'Unknown vulnerability'}
             </h3>
           </div>
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="shrink-0 w-7 h-7 grid place-items-center rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)]"
-            aria-label={expanded ? 'Collapse' : 'Expand'}
-          >
-            <svg viewBox="0 0 24 24" className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none">
-              <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+          <Tooltip text={expanded ? 'Collapse' : 'Expand'} side="left">
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="shrink-0 w-7 h-7 grid place-items-center rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] transition-colors"
+              aria-label={expanded ? 'Collapse' : 'Expand'}
+            >
+              <svg viewBox="0 0 24 24" className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none">
+                <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </Tooltip>
         </div>
 
         {/* Snippet */}
@@ -1007,7 +1134,16 @@ function FindingCard({ f, index }) {
           <div className="mb-4 rounded-lg overflow-hidden border" style={{borderColor: sev.color + '33', background: 'rgba(6,9,17,0.65)'}}>
             <div className="flex items-center justify-between px-3 py-1.5 border-b" style={{borderColor: sev.color + '22'}}>
               <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-2)]">flagged · {f.cwe || 'snippet'}</span>
-              <span className="font-mono text-[9px] uppercase tracking-wider" style={{color: sev.text}}>▲ vulnerable</span>
+              <div className="flex items-center gap-2.5">
+                <span className="font-mono text-[9px] uppercase tracking-wider" style={{color: sev.text}}>▲ vulnerable</span>
+                <Tooltip text={copied ? 'Copied!' : 'Copy snippet'} side="left">
+                  <button onClick={copySnippet} className="text-[var(--ink-2)] hover:text-[var(--ink-0)] transition-colors">
+                    {copied
+                      ? <I.check className="w-3 h-3" style={{color: 'var(--accent)'}} />
+                      : <I.copy className="w-3 h-3" />}
+                  </button>
+                </Tooltip>
+              </div>
             </div>
             <pre className="font-mono text-[12.5px] leading-relaxed p-3.5 whitespace-pre-wrap overflow-x-auto" style={{color: '#DCE3F5'}}>
               <span style={{color: sev.color, textShadow: `0 0 12px ${sev.color}40`}}>{f.snippet}</span>
@@ -1152,17 +1288,18 @@ function FileUploadButton({ onFile, scanning }) {
         style={{ display: 'none' }}
         onChange={handleChange}
       />
-      <button
-        onClick={() => inputRef.current && inputRef.current.click()}
-        disabled={scanning}
-        title="Upload a .c file"
-        className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-        </svg>
-        upload .c
-      </button>
+      <Tooltip text="Upload a .c source file">
+        <button
+          onClick={() => inputRef.current && inputRef.current.click()}
+          disabled={scanning}
+          className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          upload .c
+        </button>
+      </Tooltip>
     </>
   );
 }
@@ -1180,7 +1317,12 @@ function App() {
   const [error, setError] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [uploadedName, setUploadedName] = useState(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [lastScannedCode, setLastScannedCode] = useState('');
+  const resultCache = useRef(new Map());
   const tStart = useRef(0);
+
+  const isDirty = findings !== null && code.trim() !== lastScannedCode;
 
   // elapsed timer
   useEffect(() => {
@@ -1191,18 +1333,21 @@ function App() {
     return () => clearInterval(t);
   }, [scanning]);
 
-  const handleResult = useCallback((data) => {
-    if (data.error && (!data.findings || data.findings.length === 0)) {
-      setError(data.error);
-      setFindings([]);
-    } else {
-      setFindings(normalizeFindings(data));
-    }
-  }, []);
-
   // Analyze pasted / typed code
   const runAnalysis = useCallback(async () => {
     if (!code.trim() || scanning) return;
+    const key = code.trim();
+
+    // Serve from cache instantly — no network call
+    if (resultCache.current.has(key)) {
+      setFromCache(true);
+      setError(null);
+      setFindings(resultCache.current.get(key));
+      setLastScannedCode(key);
+      return;
+    }
+
+    setFromCache(false);
     setError(null);
     setScanning(true);
     setFindings(null);
@@ -1210,9 +1355,17 @@ function App() {
     try {
       const [data] = await Promise.all([
         analyzeCode(code),
-        new Promise(r => setTimeout(r, 1200)),
+        new Promise(r => setTimeout(r, 900)),
       ]);
-      handleResult(data);
+      if (data.error && (!data.findings || data.findings.length === 0)) {
+        setError(data.error);
+        setFindings([]);
+      } else {
+        const normalized = normalizeFindings(data);
+        resultCache.current.set(key, normalized);
+        setFindings(normalized);
+      }
+      setLastScannedCode(key);
     } catch (e) {
       console.error(e);
       setError(e.message || 'analyzer unavailable — please retry');
@@ -1220,11 +1373,12 @@ function App() {
     } finally {
       setScanning(false);
     }
-  }, [code, scanning, handleResult]);
+  }, [code, scanning]);
 
   // Analyze uploaded file
   const runFileAnalysis = useCallback(async (file) => {
     if (scanning) return;
+    setFromCache(false);
     setError(null);
     setScanning(true);
     setFindings(null);
@@ -1234,9 +1388,17 @@ function App() {
       setCode(text);
       const [data] = await Promise.all([
         analyzeFile(file),
-        new Promise(r => setTimeout(r, 1200)),
+        new Promise(r => setTimeout(r, 900)),
       ]);
-      handleResult(data);
+      if (data.error && (!data.findings || data.findings.length === 0)) {
+        setError(data.error);
+        setFindings([]);
+      } else {
+        const normalized = normalizeFindings(data);
+        resultCache.current.set(text.trim(), normalized);
+        setFindings(normalized);
+      }
+      setLastScannedCode(text.trim());
     } catch (e) {
       console.error(e);
       setError(e.message || 'file upload failed — please retry');
@@ -1244,16 +1406,20 @@ function App() {
     } finally {
       setScanning(false);
     }
-  }, [scanning, handleResult]);
+  }, [scanning]);
 
   return (
     <div className="min-h-screen relative">
       <Background />
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {activeTab === 'cwe catalog' && <CweCatalogSection />}
-      {activeTab === 'lessons' && <LessonsSection />}
-      {activeTab === 'docs' && <DocsSection />}
+      {activeTab !== 'scanner' && (
+        <div key={activeTab} className="reveal" style={{ animationDuration: '0.3s' }}>
+          {activeTab === 'cwe catalog' && <CweCatalogSection />}
+          {activeTab === 'lessons' && <LessonsSection />}
+          {activeTab === 'docs' && <DocsSection />}
+        </div>
+      )}
 
       {activeTab === 'scanner' && <Hero />}
       {activeTab === 'scanner' && <main className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24">
@@ -1285,6 +1451,7 @@ function App() {
               onFileUpload={runFileAnalysis}
               scanning={scanning}
               error={error}
+              isDirty={isDirty}
             />
 
             {/* Helper strip */}
@@ -1304,11 +1471,41 @@ function App() {
                 <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— results</span>
               </div>
               <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
-                {scanning ? `t = ${elapsed.toFixed(1)}s` : (findings === null ? 'idle' : `${findings.length} reported`)}
+                {scanning ? (
+                  <span className="flex items-center gap-1.5">
+                    <svg viewBox="0 0 24 24" className="w-3 h-3 spin-slow text-[var(--accent)]" fill="none">
+                      <circle cx="12" cy="12" r="9" stroke="rgba(124,255,205,0.2)" strokeWidth="2"/>
+                      <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    {elapsed.toFixed(1)}s
+                  </span>
+                ) : findings === null ? 'idle' : (
+                  <span className="flex items-center gap-2">
+                    <span>{findings.length} reported</span>
+                    {fromCache && (
+                      <Tooltip text="Served from cache — no API call made">
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--accent)]/10 border border-[var(--accent)]/30 text-[var(--accent)] cursor-default">
+                          <svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none">
+                            <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                          </svg>
+                          cached
+                        </span>
+                      </Tooltip>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
 
-            {scanning && <ScanningState />}
+            {/* Optimistic: show skeletons immediately while scanning */}
+            {scanning && (
+              <>
+                <SkeletonSummaryBar />
+                <div className="space-y-4">
+                  {[0, 1, 2].map(i => <SkeletonFindingCard key={i} index={i} />)}
+                </div>
+              </>
+            )}
 
             {!scanning && findings === null && <EmptyState />}
 
