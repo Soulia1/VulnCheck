@@ -162,6 +162,51 @@ const VULN_TYPES = [
   'TOCTTOU',
 ];
 
+const CWE_DATA = [
+  {
+    id: 'CWE-120', type: 'Buffer Overflow', sev: 'HIGH',
+    name: 'Buffer Copy Without Checking Size',
+    desc: 'Copies data into a buffer without verifying it fits, overwriting adjacent memory.',
+    trigger: 'strcpy, strcat, gets, sprintf with unchecked destination size',
+    fix: 'Use strncpy, strlcpy, snprintf, or C11 strcpy_s with explicit size bounds.',
+  },
+  {
+    id: 'CWE-134', type: 'Format String', sev: 'HIGH',
+    name: 'Uncontrolled Format String',
+    desc: 'Passes user-controlled data as the format argument, enabling memory reads and writes.',
+    trigger: 'printf(userInput), fprintf(f, userInput), syslog(level, userInput)',
+    fix: 'Always use a literal format string: printf("%s", input) instead of printf(input).',
+  },
+  {
+    id: 'CWE-78', type: 'Command Injection', sev: 'HIGH',
+    name: 'OS Command Injection',
+    desc: 'Embeds unsanitised user input in a shell command, allowing arbitrary command execution.',
+    trigger: 'system(), popen(), exec* family with string-built commands',
+    fix: 'Avoid shell functions; use execve() with separate argv[] and validate every argument.',
+  },
+  {
+    id: 'CWE-416', type: 'Use-After-Free', sev: 'HIGH',
+    name: 'Use After Free',
+    desc: 'Reads or writes memory after it has been freed, causing undefined behaviour or code execution.',
+    trigger: 'Any dereference of a pointer after free(ptr)',
+    fix: 'Set pointers to NULL immediately after free(); use ownership patterns or smart-pointer wrappers.',
+  },
+  {
+    id: 'CWE-415', type: 'Double Free', sev: 'HIGH',
+    name: 'Double Free',
+    desc: 'Frees the same heap allocation twice, corrupting allocator metadata.',
+    trigger: 'Two calls to free() on the same pointer without an intervening allocation',
+    fix: 'Set ptr = NULL after the first free(); guard all frees with if (ptr) { free(ptr); ptr = NULL; }',
+  },
+  {
+    id: 'CWE-367', type: 'TOCTTOU', sev: 'MEDIUM',
+    name: 'Time-of-Check Time-of-Use Race',
+    desc: 'A race condition between checking a resource (e.g. access()) and acting on it (e.g. open()).',
+    trigger: 'access() / stat() followed by open() / fopen() on the same path',
+    fix: 'Open the file first with O_NOFOLLOW and check permission via the file descriptor, not the path.',
+  },
+];
+
 const SCAN_MESSAGES = [
   'tokenizing source',
   'building AST',
@@ -230,6 +275,265 @@ const I = {
 };
 
 /* ------------------------------------------------------------------ */
+/* CWE Catalog Section                                                  */
+/* ------------------------------------------------------------------ */
+
+function CweCatalogSection() {
+  return (
+    <div className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24 pt-6">
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-1 h-4 bg-[var(--accent)]" style={{boxShadow: '0 0 12px var(--accent)'}}></span>
+          <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">CWE Catalog</h2>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {CWE_DATA.length} patterns covered</span>
+        </div>
+        <p className="text-[13.5px] text-[var(--ink-1)] max-w-[680px] leading-relaxed">
+          VulnCheck maps every finding to a CWE identifier. The patterns below are the six vulnerability classes the engine currently detects in C source code.
+        </p>
+      </div>
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {CWE_DATA.map(entry => {
+          const s = SEVERITY[entry.sev] || SEVERITY.LOW;
+          return (
+            <div key={entry.id} className={`panel relative overflow-hidden ${s.glow} p-5`}>
+              <div className={`absolute inset-x-0 top-0 h-px ${s.hair}`}></div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-[var(--bg-2)] border border-[var(--bd-1)] text-[var(--ink-1)]">{entry.id}</span>
+                <SeverityBadge sev={entry.sev} />
+              </div>
+              <h3 className="font-display font-semibold text-[17px] tracking-tight mb-1">{entry.name}</h3>
+              <p className="text-[13px] text-[var(--ink-1)] leading-relaxed mb-4">{entry.desc}</p>
+              <div className="space-y-2.5 border-t border-[var(--bd-1)] pt-3">
+                <div>
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-2)] mb-1">triggers on</div>
+                  <div className="font-mono text-[11px] text-[var(--ink-1)] bg-[var(--bg-1)] rounded px-2 py-1.5 border border-[var(--bd-1)]">{entry.trigger}</div>
+                </div>
+                <div>
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--accent)] mb-1">suggested fix</div>
+                  <div className="text-[12.5px] text-[var(--ink-1)] leading-relaxed">{entry.fix}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Lessons Section                                                      */
+/* ------------------------------------------------------------------ */
+
+const LESSONS_DATA = [
+  {
+    type: 'Buffer Overflow', cwe: 'CWE-120', sev: 'HIGH',
+    what: 'A buffer overflow occurs when a program writes more data into a fixed-size buffer than it can hold, corrupting adjacent memory regions.',
+    why: 'Attackers can overwrite return addresses or function pointers to redirect execution, leading to arbitrary code execution or privilege escalation.',
+    vuln: `char buf[32];\nstrcpy(buf, argv[1]);  // argv[1] can be > 32 bytes`,
+    safe: `char buf[32];\nstrncpy(buf, argv[1], sizeof(buf) - 1);\nbuf[sizeof(buf) - 1] = '\\0';`,
+  },
+  {
+    type: 'Format String', cwe: 'CWE-134', sev: 'HIGH',
+    what: 'A format string vulnerability arises when user-supplied data is passed directly as the format argument to printf-family functions.',
+    why: 'Attackers can use %x/%n specifiers to read stack values or write arbitrary data to memory locations, enabling information disclosure or code execution.',
+    vuln: `printf(user_input);          // dangerous\nfprintf(log_file, user_input); // also dangerous`,
+    safe: `printf("%s", user_input);         // safe\nfprintf(log_file, "%s", user_input); // safe`,
+  },
+  {
+    type: 'Command Injection', cwe: 'CWE-78', sev: 'HIGH',
+    what: 'Command injection lets attackers execute arbitrary OS commands by embedding shell metacharacters in input passed to system() or popen().',
+    why: 'The child process runs with the same privileges as the server, so an attacker can read secrets, install backdoors, or pivot to internal services.',
+    vuln: `char cmd[256];\nsprintf(cmd, "ls %s", user_path);\nsystem(cmd);  // "ls /; rm -rf /" works`,
+    safe: `// Use execve() with separate args — no shell involved\nchar *args[] = { "ls", user_path, NULL };\nexecv("/bin/ls", args);`,
+  },
+  {
+    type: 'Use-After-Free', cwe: 'CWE-416', sev: 'HIGH',
+    what: 'Use-After-Free (UAF) occurs when code continues to use a pointer after the memory it points to has been freed back to the heap.',
+    why: 'An allocator may reuse the freed region for a different object. Accessing the stale pointer can corrupt that object or, if attacker-controlled, execute arbitrary code.',
+    vuln: `char *buf = malloc(64);\nfree(buf);\nprintf("%s", buf); // undefined — heap may be reused`,
+    safe: `char *buf = malloc(64);\nfree(buf);\nbuf = NULL;        // NULL-out immediately\n// any access now faults visibly`,
+  },
+  {
+    type: 'Double Free', cwe: 'CWE-415', sev: 'HIGH',
+    what: 'Double Free happens when free() is called twice on the same heap pointer, corrupting the allocator\'s internal free-list.',
+    why: 'A corrupted free-list can be exploited to make the next malloc() return an attacker-chosen address, enabling arbitrary writes.',
+    vuln: `char *p = malloc(32);\nfree(p);\n// ... later in error path ...\nfree(p);  // second free — heap corruption`,
+    safe: `char *p = malloc(32);\nfree(p);\np = NULL;          // guard against double-free\n// safe: free(NULL) is a no-op`,
+  },
+  {
+    type: 'TOCTTOU', cwe: 'CWE-367', sev: 'MEDIUM',
+    what: 'Time-of-Check Time-of-Use is a race condition between verifying a resource (e.g. access()) and then acting on it (e.g. open()).',
+    why: 'An attacker can swap the target file with a symlink between the check and the use, bypassing the access control and accessing privileged files.',
+    vuln: `if (access(path, R_OK) == 0) {\n    // attacker swaps symlink here\n    FILE *f = fopen(path, "r"); // opens attacker file\n}`,
+    safe: `// Open first, then check via fd — no race window\nint fd = open(path, O_RDONLY | O_NOFOLLOW);\nif (fd >= 0) { /* use fd, not path */ }`,
+  },
+];
+
+function LessonsSection() {
+  const [open, setOpen] = useState(null);
+  return (
+    <div className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24 pt-6">
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-1 h-4 bg-[var(--azure)]" style={{boxShadow: '0 0 12px var(--azure)'}}></span>
+          <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">Lessons</h2>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {LESSONS_DATA.length} vulnerability classes</span>
+        </div>
+        <p className="text-[13.5px] text-[var(--ink-1)] max-w-[680px] leading-relaxed">
+          Click a lesson to expand its explanation, see a vulnerable code example, and learn the safe pattern to apply.
+        </p>
+      </div>
+      <div className="space-y-3 max-w-[860px]">
+        {LESSONS_DATA.map((lesson, idx) => {
+          const s = SEVERITY[lesson.sev] || SEVERITY.LOW;
+          const isOpen = open === idx;
+          return (
+            <div key={idx} className={`panel relative overflow-hidden transition-all`} style={{borderColor: isOpen ? s.color + '44' : ''}}>
+              <div className={`absolute inset-x-0 top-0 h-px`} style={{background: isOpen ? `linear-gradient(90deg, transparent, ${s.color}, transparent)` : 'none'}}></div>
+              <button
+                className="w-full flex items-center justify-between p-5 text-left"
+                onClick={() => setOpen(isOpen ? null : idx)}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[11px] text-[var(--ink-2)] w-5">{String(idx + 1).padStart(2,'0')}</span>
+                  <span className="font-display font-semibold text-[17px]">{lesson.type}</span>
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-2)] border border-[var(--bd-1)] text-[var(--ink-2)]">{lesson.cwe}</span>
+                  <SeverityBadge sev={lesson.sev} />
+                </div>
+                <svg viewBox="0 0 24 24" className={`w-4 h-4 text-[var(--ink-2)] transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none">
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {isOpen && (
+                <div className="px-5 pb-5 border-t border-[var(--bd-1)] pt-4 space-y-4">
+                  <p className="text-[13.5px] text-[var(--ink-1)] leading-relaxed">{lesson.what}</p>
+                  <div className="bg-[rgba(255,85,119,0.07)] border border-[var(--sev-high)]/20 rounded-lg p-3.5">
+                    <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--sev-high)] mb-1.5">why it's dangerous</div>
+                    <p className="text-[13px] text-[var(--ink-1)] leading-relaxed">{lesson.why}</p>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <div>
+                      <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--sev-high)] mb-1.5">vulnerable pattern</div>
+                      <pre className="font-mono text-[12px] leading-relaxed bg-[var(--bg-1)] border border-[var(--sev-high)]/25 rounded-lg p-3.5 whitespace-pre-wrap text-[#DCE3F5]">{lesson.vuln}</pre>
+                    </div>
+                    <div>
+                      <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--accent)] mb-1.5">safe pattern</div>
+                      <pre className="font-mono text-[12px] leading-relaxed bg-[var(--bg-1)] border border-[var(--accent)]/25 rounded-lg p-3.5 whitespace-pre-wrap text-[#DCE3F5]">{lesson.safe}</pre>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Docs Section                                                         */
+/* ------------------------------------------------------------------ */
+
+function DocsSection() {
+  return (
+    <div className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24 pt-6">
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="w-1 h-4 bg-[var(--sev-med)]" style={{boxShadow: '0 0 12px var(--sev-med)'}}></span>
+          <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">Docs</h2>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— api & usage reference</span>
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-6 max-w-[1000px]">
+        {/* Usage */}
+        <div className="panel p-5 space-y-4">
+          <h3 className="font-display font-semibold text-[17px]">Using the Scanner</h3>
+          <ol className="space-y-3 text-[13.5px] text-[var(--ink-1)] leading-relaxed list-none">
+            {[
+              ['01', 'Paste or type C source code in the editor, or click Upload .C to load a file.'],
+              ['02', 'Press Analyze Code or hit Ctrl+Enter to submit to the engine.'],
+              ['03', 'Findings appear on the right — each card shows severity, CWE ID, the vulnerable snippet, an explanation and a suggested fix.'],
+              ['04', 'The safety score (0–100) decreases with each finding weighted by severity.'],
+            ].map(([n, text]) => (
+              <li key={n} className="flex gap-3">
+                <span className="font-mono text-[10px] text-[var(--ink-2)] mt-1 shrink-0">[{n}]</span>
+                <span>{text}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Engine */}
+        <div className="panel p-5 space-y-4">
+          <h3 className="font-display font-semibold text-[17px]">Analysis Engine</h3>
+          <div className="space-y-2.5 text-[13.5px] text-[var(--ink-1)] leading-relaxed">
+            <p>The backend is a C binary (<code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck</code>) compiled from <code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck.c</code> during deployment.</p>
+            <p>It performs pattern-based and taint-aware static analysis across six detector passes, one per CWE class, and outputs structured JSON.</p>
+          </div>
+          <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-2)] mt-3 mb-1.5">supported patterns</div>
+          <div className="flex flex-wrap gap-1.5">
+            {VULN_TYPES.map(v => (
+              <span key={v} className="font-mono text-[10px] px-2 py-0.5 rounded border border-[var(--bd-1)] bg-[var(--bg-1)] text-[var(--ink-1)]">{v}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* REST API */}
+        <div className="panel p-5 space-y-4 md:col-span-2">
+          <h3 className="font-display font-semibold text-[17px]">REST API</h3>
+          <div className="grid md:grid-cols-3 gap-4">
+            {[
+              {
+                method: 'POST', path: '/analyze',
+                desc: 'Analyse source code submitted as JSON.',
+                body: '{ "code": "<c source>", "language": "c" }',
+              },
+              {
+                method: 'POST', path: '/analyze/upload',
+                desc: 'Analyse a .c file uploaded as multipart/form-data.',
+                body: 'FormData field: file (.c file, max 1 MB)',
+              },
+              {
+                method: 'GET', path: '/health',
+                desc: 'Returns engine status and current port.',
+                body: '{ "status": "ok", "engine": "ready", "port": 3000 }',
+              },
+            ].map(ep => (
+              <div key={ep.path} className="bg-[var(--bg-1)] border border-[var(--bd-1)] rounded-lg p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent)]/15 border border-[var(--accent)]/30 text-[var(--accent)]">{ep.method}</span>
+                  <code className="font-mono text-[12px] text-[var(--ink-0)]">{ep.path}</code>
+                </div>
+                <p className="text-[12.5px] text-[var(--ink-1)] leading-relaxed">{ep.desc}</p>
+                <div className="font-mono text-[10px] text-[var(--ink-2)] bg-[var(--bg-0)] rounded px-2 py-1.5 border border-[var(--bd-1)]">{ep.body}</div>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] mb-2">response schema</div>
+            <pre className="font-mono text-[12px] leading-relaxed bg-[var(--bg-0)] border border-[var(--bd-1)] rounded-lg p-4 text-[#DCE3F5] overflow-x-auto">{`{
+  "findings": [
+    {
+      "type":        "Buffer Overflow",   // vulnerability class
+      "severity":    "HIGH",              // HIGH | MEDIUM | LOW
+      "line":        7,                   // source line number
+      "snippet":     "strcpy(buf, name)", // flagged code
+      "cwe":         "CWE-120",
+      "explanation": "...",
+      "fix":         "..."
+    }
+  ]
+}`}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Background                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -295,14 +599,18 @@ function Logo() {
   );
 }
 
-function Header() {
+function Header({ activeTab, setActiveTab }) {
   return (
     <header className="relative z-20 border-b border-[var(--bd-1)] bg-[rgba(11,16,32,0.55)] backdrop-blur-xl">
       <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between">
         <Logo />
         <nav className="hidden md:flex items-center gap-0.5 font-mono text-[11px] uppercase tracking-wider">
-          {['scanner','cwe catalog','lessons','docs'].map((x, i) => (
-            <a key={x} href="#" className={`px-3 py-1.5 rounded-md transition ${i===0 ? 'text-[var(--ink-0)] bg-[var(--bg-2)] border border-[var(--bd-1)]' : 'text-[var(--ink-2)] hover:text-[var(--ink-0)]'}`}>{x}</a>
+          {['scanner','cwe catalog','lessons','docs'].map((x) => (
+            <button
+              key={x}
+              onClick={() => setActiveTab(x)}
+              className={`px-3 py-1.5 rounded-md transition ${activeTab === x ? 'text-[var(--ink-0)] bg-[var(--bg-2)] border border-[var(--bd-1)]' : 'text-[var(--ink-2)] hover:text-[var(--ink-0)]'}`}
+            >{x}</button>
           ))}
         </nav>
         <div className="flex items-center gap-3">
@@ -313,7 +621,6 @@ function Header() {
             </span>
             <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-1)]">engine online</span>
           </div>
-          <button className="font-mono text-[11px] uppercase tracking-wider px-3 py-1.5 rounded-md bg-[var(--bg-2)] border border-[var(--bd-1)] hover:border-[var(--bd-2)] text-[var(--ink-1)]">sign in</button>
         </div>
       </div>
     </header>
@@ -623,14 +930,17 @@ function SummaryBar({ findings }) {
           return (
             <div key={k} className="relative bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5 overflow-hidden">
               <div className="absolute inset-x-0 top-0 h-px" style={{background: `linear-gradient(90deg, transparent, ${s.color}, transparent)`}}></div>
-              <div className="flex items-center justify-between">
-                <SeverityBadge sev={k} />
-                <span className="font-display text-[28px] font-semibold leading-none" style={{color: n > 0 ? s.color : 'var(--ink-3)'}}>{String(n).padStart(2,'0')}</span>
-              </div>
-              <div className="mt-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
-                {k === 'HIGH' && 'exploit-class'}
-                {k === 'MEDIUM' && 'remediate soon'}
-                {k === 'LOW' && 'best-practice'}
+              <SeverityBadge sev={k} />
+              <div className="mt-3 flex items-end justify-between gap-2">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] leading-tight">
+                  {k === 'HIGH' && 'exploit-\nclass'}
+                  {k === 'MEDIUM' && 'remediate\nsoon'}
+                  {k === 'LOW' && 'best-\npractice'}
+                </div>
+                <span
+                  className="font-display text-[36px] font-semibold leading-none shrink-0"
+                  style={{color: n > 0 ? s.color : 'var(--ink-3)', textShadow: n > 0 ? `0 0 20px ${s.color}66` : 'none'}}
+                >{n}</span>
               </div>
             </div>
           );
@@ -862,6 +1172,7 @@ function FileUploadButton({ onFile, scanning }) {
 /* ------------------------------------------------------------------ */
 
 function App() {
+  const [activeTab, setActiveTab] = useState('scanner');
   const [code, setCode] = useState(SAMPLE_CODE);
   const [language] = useState('c');
   const [scanning, setScanning] = useState(false);
@@ -938,10 +1249,14 @@ function App() {
   return (
     <div className="min-h-screen relative">
       <Background />
-      <Header />
-      <Hero />
+      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      <main className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24">
+      {activeTab === 'cwe catalog' && <CweCatalogSection />}
+      {activeTab === 'lessons' && <LessonsSection />}
+      {activeTab === 'docs' && <DocsSection />}
+
+      {activeTab === 'scanner' && <Hero />}
+      {activeTab === 'scanner' && <main className="relative z-10 max-w-[1400px] mx-auto px-6 pb-24">
         <div className="grid lg:grid-cols-[1.15fr_1fr] gap-6 items-start">
           {/* Left: editor */}
           <div className="space-y-4">
@@ -1021,7 +1336,7 @@ function App() {
             )}
           </div>
         </div>
-      </main>
+      </main>}
 
       <footer className="relative z-10 border-t border-[var(--bd-1)] bg-[rgba(11,16,32,0.5)] backdrop-blur-xl">
         <div className="max-w-[1400px] mx-auto px-6 py-5 flex flex-wrap items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
