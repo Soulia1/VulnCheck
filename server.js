@@ -14,14 +14,9 @@ const app    = express();
 const PORT   = process.env.PORT || 3000;
 const ENGINE = path.join(__dirname, 'vulncheck');
 
-/* ------------------------------------------------------------------ */
-/* Middleware                                                           */
-/* ------------------------------------------------------------------ */
-
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-/* multer: memory storage, 1 MB limit, .c files only */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 1 * 1024 * 1024 },
@@ -33,20 +28,16 @@ const upload = multer({
   },
 });
 
-/* Static frontend */
+/* Static assets (images, jsx etc) */
 app.use(express.static(__dirname));
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
+/* Root route — serve VulnCheck.html */
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'VulnCheck.html'));
+});
 
-/**
- * Run the C engine on a code string.
- * Returns parsed JSON findings object.
- */
 function runEngine(code) {
   return new Promise((resolve, reject) => {
-    /* Write to a temp file so the engine can read it */
     const tmp = path.join(os.tmpdir(), `vc_${Date.now()}_${Math.random().toString(36).slice(2)}.c`);
     fs.writeFileSync(tmp, code, 'utf8');
 
@@ -58,7 +49,7 @@ function runEngine(code) {
     proc.stderr.on('data', d => { stderr += d.toString(); });
 
     proc.on('close', (code) => {
-      fs.unlink(tmp, () => {});   /* cleanup, ignore errors */
+      fs.unlink(tmp, () => {});
       if (code !== 0 && !stdout.trim()) {
         return reject(new Error(`Engine exited ${code}: ${stderr}`));
       }
@@ -77,18 +68,8 @@ function runEngine(code) {
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* Routes                                                              */
-/* ------------------------------------------------------------------ */
-
-/**
- * POST /analyze
- * Accepts: { code: "...", language: "c" }
- * Returns: { findings: [...] }
- */
 app.post('/analyze', async (req, res) => {
   const { code, language } = req.body;
-
   if (!code || typeof code !== 'string') {
     return res.status(400).json({ error: 'Missing code field', findings: [] });
   }
@@ -98,7 +79,6 @@ app.post('/analyze', async (req, res) => {
       findings: [],
     });
   }
-
   try {
     const result = await runEngine(code);
     res.json(result);
@@ -108,18 +88,11 @@ app.post('/analyze', async (req, res) => {
   }
 });
 
-/**
- * POST /analyze/upload
- * Accepts: multipart/form-data with field "file" (.c source file)
- * Returns: { findings: [...] }
- */
 app.post('/analyze/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded', findings: [] });
   }
-
   const code = req.file.buffer.toString('utf8');
-
   try {
     const result = await runEngine(code);
     res.json(result);
@@ -129,7 +102,6 @@ app.post('/analyze/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-/* Health check */
 app.get('/health', (req, res) => {
   const engineExists = fs.existsSync(ENGINE);
   res.json({
@@ -138,10 +110,6 @@ app.get('/health', (req, res) => {
     port: PORT,
   });
 });
-
-/* ------------------------------------------------------------------ */
-/* Start                                                               */
-/* ------------------------------------------------------------------ */
 
 app.listen(PORT, () => {
   console.log(`\n  VulnCheck server running at http://localhost:${PORT}`);
