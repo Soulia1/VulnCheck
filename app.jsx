@@ -143,37 +143,28 @@ int handle(int argc, char *argv[]) {
 }
 `;
 
-const PYTHON_SAMPLE_CODE = `import os
-import pickle
-import sqlite3
-import random
-import subprocess
+const PYTHON_SAMPLE_CODE = `import ctypes, os, logging
 
-DB_PASSWORD = "hunter2_secret"       # hardcoded credential
+libc = ctypes.CDLL("libc.so.6")
 
-def authenticate(username, pwd):
-    conn = sqlite3.connect("users.db")
-    cur = conn.cursor()
-    # SQL injection via string formatting
-    cur.execute("SELECT * FROM users WHERE name='%s' AND pass='%s'" % (username, pwd))
-    return cur.fetchone()
+def process(user_size, user_path, user_cmd, msg):
+    buf = ctypes.create_string_buffer(user_size)  # buffer overflow: variable size
 
-def run_report(filename):
-    os.system("generate_report " + filename)  # command injection
+    logging.warning(msg)                           # format string: user input as format
 
-def process_payload(data):
-    return pickle.loads(data)          # insecure deserialization
+    os.system("generate_report " + user_cmd)      # command injection: unsanitized shell input
 
-def generate_session_token():
-    token = str(random.randint(0, 999999))  # insecure randomness for token
-    return token
+    ptr = libc.malloc(64)
+    libc.free(ptr)
+    libc.strlen(ptr)                              # use-after-free: access after free()
 
-def load_file(path):
-    with open(path) as f:              # path traversal
-        return f.read()
+    p = libc.malloc(32)
+    libc.free(p)
+    libc.free(p)                                  # double free: freed twice
 
-def run_filter(expr):
-    return eval(expr)                  # code injection
+    if os.access(user_path, os.R_OK):
+        with open(user_path) as f:               # TOCTTOU: check then use race
+            return f.read()
 `;
 
 const LANGUAGES = [
@@ -187,7 +178,7 @@ const SEVERITY = {
   LOW:    { label: 'LOW',    color: '#5EC7FF', tint: 'rgba(94,199,255,0.10)',  text: '#B0E0FF', glow: 'glow-low',  hair: 'top-hair-low'  },
 };
 
-const C_VULN_TYPES = [
+const VULN_TYPES = [
   'Buffer Overflow',
   'Format String',
   'Command Injection',
@@ -195,18 +186,6 @@ const C_VULN_TYPES = [
   'Double Free',
   'TOCTTOU',
 ];
-
-const PYTHON_VULN_TYPES = [
-  'Command Injection',
-  'Code Injection',
-  'SQL Injection',
-  'Insecure Deserialization',
-  'Path Traversal',
-  'Hardcoded Secret',
-  'Insecure Randomness',
-];
-
-const VULN_TYPES = [...new Set([...C_VULN_TYPES, ...PYTHON_VULN_TYPES])];
 
 const CWE_DATA = [
   {
@@ -250,55 +229,6 @@ const CWE_DATA = [
     desc: 'A race condition between checking a resource (e.g. access()) and acting on it (e.g. open()).',
     trigger: 'access() / stat() followed by open() / fopen() on the same path',
     fix: 'Open the file first with O_NOFOLLOW and check permission via the file descriptor, not the path.',
-    lang: 'c',
-  },
-  {
-    id: 'CWE-94', type: 'Code Injection', sev: 'HIGH',
-    name: 'Improper Control of Code Generation',
-    desc: 'Passes user-controlled data to eval() or exec(), allowing arbitrary Python code execution.',
-    trigger: 'eval(user_input), exec(user_input) with non-literal arguments',
-    fix: 'Avoid eval/exec entirely; use ast.literal_eval() for safe literal parsing or a dispatch table.',
-    lang: 'python',
-  },
-  {
-    id: 'CWE-89', type: 'SQL Injection', sev: 'HIGH',
-    name: 'SQL Injection',
-    desc: 'Builds SQL queries with user-controlled values via string formatting or concatenation.',
-    trigger: '"SELECT ... WHERE id=%s" % user_id, f"SELECT ... WHERE name={name}", or string + SQL',
-    fix: 'Use parameterized queries: cursor.execute("SELECT ... WHERE id=?", (user_id,)).',
-    lang: 'python',
-  },
-  {
-    id: 'CWE-502', type: 'Insecure Deserialization', sev: 'HIGH',
-    name: 'Deserialization of Untrusted Data',
-    desc: 'Deserializes attacker-controlled bytes via pickle or yaml.load, enabling arbitrary code execution.',
-    trigger: 'pickle.loads(user_data), yaml.load(data) without SafeLoader',
-    fix: 'Never deserialize pickle/marshal from untrusted sources; use JSON or yaml.safe_load().',
-    lang: 'python',
-  },
-  {
-    id: 'CWE-22', type: 'Path Traversal', sev: 'MEDIUM',
-    name: 'Path Traversal',
-    desc: 'Opens a file at a path derived from user input, allowing access to arbitrary files.',
-    trigger: 'open(user_path) without canonicalization or base-directory assertion',
-    fix: 'Call os.path.realpath() and assert the result starts with the allowed base directory.',
-    lang: 'python',
-  },
-  {
-    id: 'CWE-798', type: 'Hardcoded Secret', sev: 'HIGH',
-    name: 'Use of Hard-coded Credentials',
-    desc: 'Embeds passwords, API keys, or tokens as string literals in source code.',
-    trigger: 'password = "literal", api_key = "literal", token = "literal"',
-    fix: 'Load secrets from environment variables (os.environ) or a secrets manager at runtime.',
-    lang: 'python',
-  },
-  {
-    id: 'CWE-338', type: 'Insecure Randomness', sev: 'MEDIUM',
-    name: 'Use of Cryptographically Weak PRNG',
-    desc: 'Uses the non-cryptographic random module to generate security-sensitive values.',
-    trigger: 'random.randint(), random.choice() for tokens, passwords, nonces, or session IDs',
-    fix: 'Use the secrets module: secrets.token_hex(32), secrets.token_urlsafe(), or secrets.choice().',
-    lang: 'python',
   },
 ];
 
@@ -447,10 +377,10 @@ function CweCatalogSection() {
         <div className="flex items-center gap-2 mb-3">
           <span className="w-1 h-4 bg-[var(--accent)]" style={{boxShadow: '0 0 12px var(--accent)'}}></span>
           <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">CWE Catalog</h2>
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {CWE_DATA.length} patterns · C + Python</span>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {CWE_DATA.length} patterns covered</span>
         </div>
         <p className="text-[13.5px] text-[var(--ink-1)] max-w-[680px] leading-relaxed">
-          VulnCheck maps every finding to a CWE identifier. The patterns below are the vulnerability classes the engine detects across C and Python source code.
+          VulnCheck maps every finding to a CWE identifier. The patterns below are the six vulnerability classes the engine detects in C and Python source code.
         </p>
       </div>
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -529,41 +459,6 @@ const LESSONS_DATA = [
     why: 'An attacker can swap the target file with a symlink between the check and the use, bypassing the access control and accessing privileged files.',
     vuln: `if (access(path, R_OK) == 0) {\n    // attacker swaps symlink here\n    FILE *f = fopen(path, "r"); // opens attacker file\n}`,
     safe: `// Open first, then check via fd — no race window\nint fd = open(path, O_RDONLY | O_NOFOLLOW);\nif (fd >= 0) { /* use fd, not path */ }`,
-  },
-  {
-    type: 'Code Injection', cwe: 'CWE-94', sev: 'HIGH',
-    what: 'Code injection occurs when user-supplied data is passed to eval() or exec(), which execute arbitrary Python code at runtime.',
-    why: "Python's eval() has full access to the runtime environment. An attacker can import modules, read files, spawn processes, or escalate privileges within the same process.",
-    vuln: `user_expr = request.args.get("filter")\nresult = eval(user_expr)   # attacker runs any Python`,
-    safe: `import ast\n# Safe for literals only (numbers, strings, lists, dicts):\nresult = ast.literal_eval(user_expr)\n# For logic, use an explicit dispatch table instead`,
-  },
-  {
-    type: 'SQL Injection', cwe: 'CWE-89', sev: 'HIGH',
-    what: 'SQL injection occurs when user input is embedded directly in a SQL query string, allowing an attacker to alter the query structure.',
-    why: "Altered queries can bypass authentication, exfiltrate the entire database, modify or delete data, and in some configurations execute OS commands via the database engine.",
-    vuln: `# %-format — attacker can inject: "' OR '1'='1"\ncur.execute("SELECT * FROM users WHERE name='%s'" % name)`,
-    safe: `# Parameterized query — driver escapes the value safely\ncur.execute("SELECT * FROM users WHERE name = ?", (name,))`,
-  },
-  {
-    type: 'Insecure Deserialization', cwe: 'CWE-502', sev: 'HIGH',
-    what: 'Insecure deserialization occurs when untrusted byte streams are decoded using formats like pickle that support arbitrary code execution during loading.',
-    why: "Python's pickle protocol calls __reduce__ on objects during deserialization, which can invoke arbitrary callables. An attacker can craft a payload that spawns a shell or exfiltrates secrets.",
-    vuln: `import pickle\ndata = request.body         # attacker-controlled bytes\nobj = pickle.loads(data)   # arbitrary code executes here`,
-    safe: `import json\n# JSON has no code execution — safe for untrusted data\nobj = json.loads(data)\n# For YAML: use yaml.safe_load(data) instead of yaml.load()`,
-  },
-  {
-    type: 'Hardcoded Secret', cwe: 'CWE-798', sev: 'HIGH',
-    what: 'Hardcoded secrets are passwords, API keys, or tokens written directly as string literals in source code.',
-    why: 'Anyone with access to the source repository, binary, or deployment artifact can extract the secret. Leaked credentials cannot be revoked without a code change and re-deployment.',
-    vuln: `# Committed to git — visible to anyone with repo access\nDB_PASSWORD = "supersecret123"\nAPI_KEY = "sk-live-abc123xyz"`,
-    safe: `import os\n# Loaded at runtime — not stored in source or version control\nDB_PASSWORD = os.environ["DB_PASSWORD"]\nAPI_KEY     = os.environ["API_KEY"]`,
-  },
-  {
-    type: 'Insecure Randomness', cwe: 'CWE-338', sev: 'MEDIUM',
-    what: "Insecure randomness occurs when the non-cryptographic random module is used to generate security-sensitive values like tokens, session IDs, or nonces.",
-    why: "Python's random module uses a Mersenne Twister, which is deterministic and predictable given enough observed outputs. An attacker can recover the internal state and predict future tokens.",
-    vuln: `import random\n# Predictable: only ~1 million possibilities + Mersenne state\ntoken = str(random.randint(0, 999999))`,
-    safe: `import secrets\n# Cryptographically secure — 256 bits of entropy, unpredictable\ntoken = secrets.token_urlsafe(32)`,
   },
 ];
 
@@ -810,15 +705,6 @@ function Header({ activeTab, setActiveTab }) {
             >{x}</button>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-[var(--bg-2)] border border-[var(--bd-1)]">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inset-0 rounded-full bg-[var(--accent)] pulse-dot"></span>
-              <span className="rounded-full h-1.5 w-1.5 bg-[var(--accent)]"></span>
-            </span>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-1)]">engine online</span>
-          </div>
-        </div>
       </div>
     </header>
   );
@@ -832,11 +718,6 @@ function Hero() {
   return (
     <section className="relative z-10">
       <div className="max-w-[1400px] mx-auto px-6 pt-14 pb-10">
-        <div className="flex items-center gap-2 mb-5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--accent)]">— LAB · 03</span>
-          <span className="h-px w-12 bg-[var(--bd-2)]"></span>
-          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-[var(--ink-2)]">secure systems</span>
-        </div>
         <h1 className="font-display font-semibold text-[56px] md:text-[68px] leading-[0.95] tracking-[-0.03em] max-w-[920px]">
           See your vulnerabilities<br/>
           <span className="text-[var(--ink-2)]">before</span> an attacker does.
@@ -960,7 +841,9 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
             onKeyDown={onKeyDown}
             spellCheck={false}
             disabled={scanning}
+            placeholder={`// Paste your ${language === 'python' ? 'Python' : 'C'} source code here\n// or click "sample" to load an example`}
             className="editor-textarea font-mono text-[12.5px] flex-1 py-4 pr-4 outline-none resize-none"
+            style={{color: '#DCE3F5'}}
           />
         </div>
 
@@ -1007,12 +890,6 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
           )}
         </button>
 
-        <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)] flex items-center gap-2">
-          <span className="text-[var(--ink-1)]">model</span>
-          <span className="px-1.5 py-0.5 rounded bg-[var(--bg-2)] border border-[var(--bd-1)]">claude-sonnet-4</span>
-          <span>·</span>
-          <span>structured json</span>
-        </div>
 
         {error && (
           <div className="ml-auto flex items-center gap-2 font-mono text-[11px] text-[var(--sev-high)]">
@@ -1401,7 +1278,7 @@ function FileUploadButton({ onFile, scanning, language }) {
 
 function App() {
   const [activeTab, setActiveTab] = useState('scanner');
-  const [code, setCode] = useState(SAMPLE_CODE);
+  const [code, setCode] = useState('');
   const [language, setLanguage] = useState('c');
   const [scanning, setScanning] = useState(false);
   const [findings, setFindings] = useState(null);
