@@ -9,25 +9,11 @@ const path     = require('path');
 const fs       = require('fs');
 const os       = require('os');
 const { spawn } = require('child_process');
+const { analyzePython } = require('./vulncheck_python');
 
-const app       = express();
-const PORT      = process.env.PORT || 3000;
-const ENGINE_C  = path.join(__dirname, 'vulncheck');
-const ENGINE_PY = path.join(__dirname, 'vulncheck_python.py');
-/* Dynamically find whatever Python 3 binary is available */
-const { execSync } = require('child_process');
-function findPython() {
-  const candidates = process.platform === 'win32'
-    ? ['python', 'python3', 'py']
-    : ['python3', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3.9', 'python'];
-  for (const cmd of candidates) {
-    try { execSync(`${cmd} --version`, { stdio: 'ignore' }); return cmd; }
-    catch (_) {}
-  }
-  return null;
-}
-const PYTHON = findPython();
-console.log(PYTHON ? `[python] found: ${PYTHON}` : '[python] WARNING: no Python interpreter found — Python analysis disabled');
+const app      = express();
+const PORT     = process.env.PORT || 3000;
+const ENGINE_C = path.join(__dirname, 'vulncheck');
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -85,42 +71,11 @@ function runEngine(code) {
 }
 
 function runPythonEngine(code) {
-  if (!PYTHON) {
-    return Promise.reject(new Error('No Python 3 interpreter found on this server. Install Python 3 to enable Python analysis.'));
+  try {
+    return Promise.resolve(analyzePython(code));
+  } catch (err) {
+    return Promise.reject(err);
   }
-  return new Promise((resolve, reject) => {
-    const tmp = path.join(os.tmpdir(), `vc_${Date.now()}_${Math.random().toString(36).slice(2)}.py`);
-    fs.writeFileSync(tmp, code, 'utf8');
-
-    let stdout = '';
-    let stderr = '';
-    const proc = spawn(PYTHON, [ENGINE_PY, tmp], { timeout: 15000 });
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-
-    proc.on('close', (code) => {
-      fs.unlink(tmp, () => {});
-      if (code !== 0 && !stdout.trim()) {
-        return reject(new Error(`Python engine exited ${code}: ${stderr}`));
-      }
-      try {
-        const data = JSON.parse(stdout);
-        resolve(data);
-      } catch (e) {
-        reject(new Error(`Python engine output not valid JSON: ${stdout.slice(0, 200)}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      fs.unlink(tmp, () => {});
-      if (err.code === 'ENOENT') {
-        reject(new Error(`Python interpreter (${PYTHON}) not found on this server. Install Python 3 to enable Python analysis.`));
-      } else {
-        reject(err);
-      }
-    });
-  });
 }
 
 app.post('/analyze', async (req, res) => {
@@ -161,12 +116,11 @@ app.post('/analyze/upload', upload.single('file'), async (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  const cEngineExists  = fs.existsSync(ENGINE_C);
-  const pyEngineExists = fs.existsSync(ENGINE_PY);
+  const cEngineExists = fs.existsSync(ENGINE_C);
   res.json({
     status: 'ok',
-    engine_c:      cEngineExists  ? 'ready' : 'missing — run make',
-    engine_python: pyEngineExists ? 'ready' : 'missing',
+    engine_c:      cEngineExists ? 'ready' : 'missing — run make',
+    engine_python: 'ready (Node.js)',
     port: PORT,
   });
 });
@@ -174,6 +128,6 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n  VulnCheck server running at http://localhost:${PORT}`);
   console.log(`  C engine     : ${ENGINE_C}`);
-  console.log(`  Python engine: ${ENGINE_PY}`);
+  console.log(`  Python engine: Node.js (vulncheck_python.js)`);
   console.log(`  Health check : http://localhost:${PORT}/health\n`);
 });
