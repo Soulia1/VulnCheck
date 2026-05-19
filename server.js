@@ -16,6 +16,15 @@ const ENGINE_C  = path.join(__dirname, 'vulncheck');
 const ENGINE_PY = path.join(__dirname, 'vulncheck_python.py');
 const PYTHON    = process.platform === 'win32' ? 'python' : 'python3';
 
+/* Verify Python is available at startup and warn early if not */
+const { execSync } = require('child_process');
+(function checkPython() {
+  try { execSync(`${PYTHON} --version`, { stdio: 'ignore' }); }
+  catch (_) {
+    console.warn(`[warn] ${PYTHON} not found — Python analysis will be unavailable`);
+  }
+})();
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -98,7 +107,11 @@ function runPythonEngine(code) {
 
     proc.on('error', (err) => {
       fs.unlink(tmp, () => {});
-      reject(err);
+      if (err.code === 'ENOENT') {
+        reject(new Error(`Python interpreter (${PYTHON}) not found on this server. Install Python 3 to enable Python analysis.`));
+      } else {
+        reject(err);
+      }
     });
   });
 }
