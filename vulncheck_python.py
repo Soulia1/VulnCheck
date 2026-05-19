@@ -125,17 +125,20 @@ def detect_format_string(line, lineno, raw):
                     'or logging.info(f"{user_msg}") to prevent format string interpretation.',
                     'CWE-134')
 
-    # var % args — left operand of % is a variable (user-controlled format string)
-    m = re.search(r'(?<!["\'\w])(\b[a-zA-Z_]\w*)\s*%\s*[(\w]', line)
-    if m:
-        fmt_var = m.group(1)
-        reserved = {'if', 'else', 'elif', 'while', 'for', 'in', 'not',
-                    'and', 'or', 'True', 'False', 'None', 'return', 'import',
-                    'from', 'class', 'def', 'print', 'len', 'range', 'int',
-                    'str', 'bytes', 'list', 'dict', 'set', 'tuple'}
-        if fmt_var not in reserved:
-            ctx_before = line[:m.start()].strip()
-            if not re.search(r'["\'].*$', ctx_before):
+    # var % (args) — left operand is a variable, right is a tuple/dict (not math)
+    # Only flag when right side is clearly format-string args: ( or { or "
+    # This avoids false positives from modulo math: x % 2, count % 100
+    stripped = raw.strip()
+    if not stripped.startswith('#'):
+        m = re.search(r'(?<!["\'\w])(\b[a-zA-Z_]\w*)\s*%\s*[({"\']', line)
+        if m:
+            fmt_var = m.group(1)
+            reserved = {'if', 'else', 'elif', 'while', 'for', 'in', 'not',
+                        'and', 'or', 'True', 'False', 'None', 'return',
+                        'import', 'from', 'class', 'def', 'print', 'len',
+                        'range', 'int', 'str', 'bytes', 'list', 'dict',
+                        'set', 'tuple', 'type', 'super', 'object'}
+            if fmt_var not in reserved:
                 add_finding('Format String', 'HIGH', lineno, raw,
                     'The left operand of the %% format operator is a variable, not a '
                     'string literal. If this variable contains user-supplied data, an '
