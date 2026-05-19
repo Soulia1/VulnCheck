@@ -143,8 +143,42 @@ int handle(int argc, char *argv[]) {
 }
 `;
 
+const PYTHON_SAMPLE_CODE = `import os
+import pickle
+import sqlite3
+import random
+import subprocess
+
+DB_PASSWORD = "hunter2_secret"       # hardcoded credential
+
+def authenticate(username, pwd):
+    conn = sqlite3.connect("users.db")
+    cur = conn.cursor()
+    # SQL injection via string formatting
+    cur.execute("SELECT * FROM users WHERE name='%s' AND pass='%s'" % (username, pwd))
+    return cur.fetchone()
+
+def run_report(filename):
+    os.system("generate_report " + filename)  # command injection
+
+def process_payload(data):
+    return pickle.loads(data)          # insecure deserialization
+
+def generate_session_token():
+    token = str(random.randint(0, 999999))  # insecure randomness for token
+    return token
+
+def load_file(path):
+    with open(path) as f:              # path traversal
+        return f.read()
+
+def run_filter(expr):
+    return eval(expr)                  # code injection
+`;
+
 const LANGUAGES = [
-  { id: 'c', label: 'C' },
+  { id: 'c',      label: 'C'      },
+  { id: 'python', label: 'Python' },
 ];
 
 const SEVERITY = {
@@ -153,7 +187,7 @@ const SEVERITY = {
   LOW:    { label: 'LOW',    color: '#5EC7FF', tint: 'rgba(94,199,255,0.10)',  text: '#B0E0FF', glow: 'glow-low',  hair: 'top-hair-low'  },
 };
 
-const VULN_TYPES = [
+const C_VULN_TYPES = [
   'Buffer Overflow',
   'Format String',
   'Command Injection',
@@ -161,6 +195,18 @@ const VULN_TYPES = [
   'Double Free',
   'TOCTTOU',
 ];
+
+const PYTHON_VULN_TYPES = [
+  'Command Injection',
+  'Code Injection',
+  'SQL Injection',
+  'Insecure Deserialization',
+  'Path Traversal',
+  'Hardcoded Secret',
+  'Insecure Randomness',
+];
+
+const VULN_TYPES = [...new Set([...C_VULN_TYPES, ...PYTHON_VULN_TYPES])];
 
 const CWE_DATA = [
   {
@@ -204,6 +250,55 @@ const CWE_DATA = [
     desc: 'A race condition between checking a resource (e.g. access()) and acting on it (e.g. open()).',
     trigger: 'access() / stat() followed by open() / fopen() on the same path',
     fix: 'Open the file first with O_NOFOLLOW and check permission via the file descriptor, not the path.',
+    lang: 'c',
+  },
+  {
+    id: 'CWE-94', type: 'Code Injection', sev: 'HIGH',
+    name: 'Improper Control of Code Generation',
+    desc: 'Passes user-controlled data to eval() or exec(), allowing arbitrary Python code execution.',
+    trigger: 'eval(user_input), exec(user_input) with non-literal arguments',
+    fix: 'Avoid eval/exec entirely; use ast.literal_eval() for safe literal parsing or a dispatch table.',
+    lang: 'python',
+  },
+  {
+    id: 'CWE-89', type: 'SQL Injection', sev: 'HIGH',
+    name: 'SQL Injection',
+    desc: 'Builds SQL queries with user-controlled values via string formatting or concatenation.',
+    trigger: '"SELECT ... WHERE id=%s" % user_id, f"SELECT ... WHERE name={name}", or string + SQL',
+    fix: 'Use parameterized queries: cursor.execute("SELECT ... WHERE id=?", (user_id,)).',
+    lang: 'python',
+  },
+  {
+    id: 'CWE-502', type: 'Insecure Deserialization', sev: 'HIGH',
+    name: 'Deserialization of Untrusted Data',
+    desc: 'Deserializes attacker-controlled bytes via pickle or yaml.load, enabling arbitrary code execution.',
+    trigger: 'pickle.loads(user_data), yaml.load(data) without SafeLoader',
+    fix: 'Never deserialize pickle/marshal from untrusted sources; use JSON or yaml.safe_load().',
+    lang: 'python',
+  },
+  {
+    id: 'CWE-22', type: 'Path Traversal', sev: 'MEDIUM',
+    name: 'Path Traversal',
+    desc: 'Opens a file at a path derived from user input, allowing access to arbitrary files.',
+    trigger: 'open(user_path) without canonicalization or base-directory assertion',
+    fix: 'Call os.path.realpath() and assert the result starts with the allowed base directory.',
+    lang: 'python',
+  },
+  {
+    id: 'CWE-798', type: 'Hardcoded Secret', sev: 'HIGH',
+    name: 'Use of Hard-coded Credentials',
+    desc: 'Embeds passwords, API keys, or tokens as string literals in source code.',
+    trigger: 'password = "literal", api_key = "literal", token = "literal"',
+    fix: 'Load secrets from environment variables (os.environ) or a secrets manager at runtime.',
+    lang: 'python',
+  },
+  {
+    id: 'CWE-338', type: 'Insecure Randomness', sev: 'MEDIUM',
+    name: 'Use of Cryptographically Weak PRNG',
+    desc: 'Uses the non-cryptographic random module to generate security-sensitive values.',
+    trigger: 'random.randint(), random.choice() for tokens, passwords, nonces, or session IDs',
+    fix: 'Use the secrets module: secrets.token_hex(32), secrets.token_urlsafe(), or secrets.choice().',
+    lang: 'python',
   },
 ];
 
@@ -352,10 +447,10 @@ function CweCatalogSection() {
         <div className="flex items-center gap-2 mb-3">
           <span className="w-1 h-4 bg-[var(--accent)]" style={{boxShadow: '0 0 12px var(--accent)'}}></span>
           <h2 className="font-display font-semibold text-[15px] tracking-tight uppercase">CWE Catalog</h2>
-          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {CWE_DATA.length} patterns covered</span>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">— {CWE_DATA.length} patterns · C + Python</span>
         </div>
         <p className="text-[13.5px] text-[var(--ink-1)] max-w-[680px] leading-relaxed">
-          VulnCheck maps every finding to a CWE identifier. The patterns below are the six vulnerability classes the engine currently detects in C source code.
+          VulnCheck maps every finding to a CWE identifier. The patterns below are the vulnerability classes the engine detects across C and Python source code.
         </p>
       </div>
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -434,6 +529,41 @@ const LESSONS_DATA = [
     why: 'An attacker can swap the target file with a symlink between the check and the use, bypassing the access control and accessing privileged files.',
     vuln: `if (access(path, R_OK) == 0) {\n    // attacker swaps symlink here\n    FILE *f = fopen(path, "r"); // opens attacker file\n}`,
     safe: `// Open first, then check via fd — no race window\nint fd = open(path, O_RDONLY | O_NOFOLLOW);\nif (fd >= 0) { /* use fd, not path */ }`,
+  },
+  {
+    type: 'Code Injection', cwe: 'CWE-94', sev: 'HIGH',
+    what: 'Code injection occurs when user-supplied data is passed to eval() or exec(), which execute arbitrary Python code at runtime.',
+    why: "Python's eval() has full access to the runtime environment. An attacker can import modules, read files, spawn processes, or escalate privileges within the same process.",
+    vuln: `user_expr = request.args.get("filter")\nresult = eval(user_expr)   # attacker runs any Python`,
+    safe: `import ast\n# Safe for literals only (numbers, strings, lists, dicts):\nresult = ast.literal_eval(user_expr)\n# For logic, use an explicit dispatch table instead`,
+  },
+  {
+    type: 'SQL Injection', cwe: 'CWE-89', sev: 'HIGH',
+    what: 'SQL injection occurs when user input is embedded directly in a SQL query string, allowing an attacker to alter the query structure.',
+    why: "Altered queries can bypass authentication, exfiltrate the entire database, modify or delete data, and in some configurations execute OS commands via the database engine.",
+    vuln: `# %-format — attacker can inject: "' OR '1'='1"\ncur.execute("SELECT * FROM users WHERE name='%s'" % name)`,
+    safe: `# Parameterized query — driver escapes the value safely\ncur.execute("SELECT * FROM users WHERE name = ?", (name,))`,
+  },
+  {
+    type: 'Insecure Deserialization', cwe: 'CWE-502', sev: 'HIGH',
+    what: 'Insecure deserialization occurs when untrusted byte streams are decoded using formats like pickle that support arbitrary code execution during loading.',
+    why: "Python's pickle protocol calls __reduce__ on objects during deserialization, which can invoke arbitrary callables. An attacker can craft a payload that spawns a shell or exfiltrates secrets.",
+    vuln: `import pickle\ndata = request.body         # attacker-controlled bytes\nobj = pickle.loads(data)   # arbitrary code executes here`,
+    safe: `import json\n# JSON has no code execution — safe for untrusted data\nobj = json.loads(data)\n# For YAML: use yaml.safe_load(data) instead of yaml.load()`,
+  },
+  {
+    type: 'Hardcoded Secret', cwe: 'CWE-798', sev: 'HIGH',
+    what: 'Hardcoded secrets are passwords, API keys, or tokens written directly as string literals in source code.',
+    why: 'Anyone with access to the source repository, binary, or deployment artifact can extract the secret. Leaked credentials cannot be revoked without a code change and re-deployment.',
+    vuln: `# Committed to git — visible to anyone with repo access\nDB_PASSWORD = "supersecret123"\nAPI_KEY = "sk-live-abc123xyz"`,
+    safe: `import os\n# Loaded at runtime — not stored in source or version control\nDB_PASSWORD = os.environ["DB_PASSWORD"]\nAPI_KEY     = os.environ["API_KEY"]`,
+  },
+  {
+    type: 'Insecure Randomness', cwe: 'CWE-338', sev: 'MEDIUM',
+    what: "Insecure randomness occurs when the non-cryptographic random module is used to generate security-sensitive values like tokens, session IDs, or nonces.",
+    why: "Python's random module uses a Mersenne Twister, which is deterministic and predictable given enough observed outputs. An attacker can recover the internal state and predict future tokens.",
+    vuln: `import random\n# Predictable: only ~1 million possibilities + Mersenne state\ntoken = str(random.randint(0, 999999))`,
+    safe: `import secrets\n# Cryptographically secure — 256 bits of entropy, unpredictable\ntoken = secrets.token_urlsafe(32)`,
   },
 ];
 
@@ -536,8 +666,8 @@ function DocsSection() {
         <div className="panel p-5 space-y-4">
           <h3 className="font-display font-semibold text-[17px]">Analysis Engine</h3>
           <div className="space-y-2.5 text-[13.5px] text-[var(--ink-1)] leading-relaxed">
-            <p>The backend is a C binary (<code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck</code>) compiled from <code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck.c</code> during deployment.</p>
-            <p>It performs pattern-based and taint-aware static analysis across six detector passes, one per CWE class, and outputs structured JSON.</p>
+            <p>Two engines power the analysis: a compiled C binary (<code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck</code>) for C code, and a Python script (<code className="font-mono text-[12px] bg-[var(--bg-2)] px-1.5 py-0.5 rounded border border-[var(--bd-1)]">vulncheck_python.py</code>) for Python code.</p>
+            <p>Each engine performs pattern-based and taint-aware static analysis and outputs structured JSON.</p>
           </div>
           <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-2)] mt-3 mb-1.5">supported patterns</div>
           <div className="flex flex-wrap gap-1.5">
@@ -555,7 +685,7 @@ function DocsSection() {
               {
                 method: 'POST', path: '/analyze',
                 desc: 'Analyse source code submitted as JSON.',
-                body: '{ "code": "<c source>", "language": "c" }',
+                body: '{ "code": "<source>", "language": "c | python" }',
               },
               {
                 method: 'POST', path: '/analyze/upload',
@@ -777,7 +907,7 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
             <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)]/70"></span>
           </div>
           <span className="font-mono text-[11px] text-[var(--ink-1)]">
-            ~/lab/<span className="text-[var(--ink-0)]">handler.{language === 'cpp' ? 'cpp' : language === 'rust' ? 'rs' : language === 'go' ? 'go' : 'c'}</span>
+            ~/lab/<span className="text-[var(--ink-0)]">handler.{language === 'python' ? 'py' : 'c'}</span>
           </span>
           <span className="px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider rounded bg-[var(--bg-3)] text-[var(--ink-1)] border border-[var(--bd-1)]">unsaved</span>
         </div>
@@ -793,13 +923,13 @@ function EditorPanel({ code, setCode, language, setLanguage, onAnalyze, onFileUp
           </div>
           <Tooltip text="Load sample vulnerable code">
             <button
-              onClick={() => setCode(SAMPLE_CODE)}
+              onClick={() => setCode(language === 'python' ? PYTHON_SAMPLE_CODE : SAMPLE_CODE)}
               className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-[var(--bd-1)] text-[var(--ink-2)] hover:text-[var(--ink-0)] hover:border-[var(--bd-2)] flex items-center gap-1 transition-colors"
             >
               <I.reset className="w-3 h-3" /> sample
             </button>
           </Tooltip>
-          {onFileUpload && <FileUploadButton onFile={onFileUpload} scanning={scanning} />}
+          {onFileUpload && <FileUploadButton onFile={onFileUpload} scanning={scanning} language={language} />}
         </div>
       </div>
 
@@ -1187,27 +1317,24 @@ function CleanState() {
 
 function normalizeFindings(data) {
   if (!data || !Array.isArray(data.findings)) return [];
-  const ALLOWED = new Set(VULN_TYPES);
   const SEV = new Set(['HIGH','MEDIUM','LOW']);
-  return data.findings
-    .map(f => ({
-      type: ALLOWED.has(f.type) ? f.type : (f.type || 'Unknown'),
-      severity: SEV.has((f.severity || '').toUpperCase()) ? f.severity.toUpperCase() : 'LOW',
-      line: Number.isFinite(f.line) ? f.line : (parseInt(f.line, 10) || null),
-      snippet: typeof f.snippet === 'string' ? f.snippet : '',
-      explanation: typeof f.explanation === 'string' ? f.explanation : '',
-      fix: typeof f.fix === 'string' ? f.fix : '',
-      cwe: typeof f.cwe === 'string' ? f.cwe : '',
-    }))
-    .filter(f => ALLOWED.has(f.type));
+  return data.findings.map(f => ({
+    type: f.type || 'Unknown',
+    severity: SEV.has((f.severity || '').toUpperCase()) ? f.severity.toUpperCase() : 'LOW',
+    line: Number.isFinite(f.line) ? f.line : (parseInt(f.line, 10) || null),
+    snippet: typeof f.snippet === 'string' ? f.snippet : '',
+    explanation: typeof f.explanation === 'string' ? f.explanation : '',
+    fix: typeof f.fix === 'string' ? f.fix : '',
+    cwe: typeof f.cwe === 'string' ? f.cwe : '',
+  }));
 }
 
 /* Send code text to /analyze */
-async function analyzeCode(code) {
+async function analyzeCode(code, language) {
   const res = await fetch('/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, language: 'c' }),
+    body: JSON.stringify({ code, language: language || 'c' }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1232,8 +1359,9 @@ async function analyzeFile(file) {
 /* File Upload Button component                                         */
 /* ------------------------------------------------------------------ */
 
-function FileUploadButton({ onFile, scanning }) {
+function FileUploadButton({ onFile, scanning, language }) {
   const inputRef = useRef(null);
+  const ext = language === 'python' ? '.py' : '.c';
 
   const handleChange = (e) => {
     const file = e.target.files[0];
@@ -1247,11 +1375,11 @@ function FileUploadButton({ onFile, scanning }) {
       <input
         ref={inputRef}
         type="file"
-        accept=".c,text/plain"
+        accept=".c,.py,text/plain"
         style={{ display: 'none' }}
         onChange={handleChange}
       />
-      <Tooltip text="Upload a .c source file">
+      <Tooltip text={`Upload a ${ext} source file`}>
         <button
           onClick={() => inputRef.current && inputRef.current.click()}
           disabled={scanning}
@@ -1260,7 +1388,7 @@ function FileUploadButton({ onFile, scanning }) {
           <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
           </svg>
-          upload .c
+          upload {ext}
         </button>
       </Tooltip>
     </>
@@ -1274,7 +1402,7 @@ function FileUploadButton({ onFile, scanning }) {
 function App() {
   const [activeTab, setActiveTab] = useState('scanner');
   const [code, setCode] = useState(SAMPLE_CODE);
-  const [language] = useState('c');
+  const [language, setLanguage] = useState('c');
   const [scanning, setScanning] = useState(false);
   const [findings, setFindings] = useState(null);
   const [error, setError] = useState(null);
@@ -1299,14 +1427,14 @@ function App() {
   // Analyze pasted / typed code
   const runAnalysis = useCallback(async () => {
     if (!code.trim() || scanning) return;
-    const key = code.trim();
+    const key = `${language}:${code.trim()}`;
 
     // Serve from cache instantly — no network call
     if (resultCache.current.has(key)) {
       setFromCache(true);
       setError(null);
       setFindings(resultCache.current.get(key));
-      setLastScannedCode(key);
+      setLastScannedCode(code.trim());
       return;
     }
 
@@ -1317,7 +1445,7 @@ function App() {
     setUploadedName(null);
     try {
       const [data] = await Promise.all([
-        analyzeCode(code),
+        analyzeCode(code, language),
         new Promise(r => setTimeout(r, 900)),
       ]);
       if (data.error && (!data.findings || data.findings.length === 0)) {
@@ -1328,7 +1456,7 @@ function App() {
         resultCache.current.set(key, normalized);
         setFindings(normalized);
       }
-      setLastScannedCode(key);
+      setLastScannedCode(code.trim());
     } catch (e) {
       console.error(e);
       setError(e.message || 'analyzer unavailable — please retry');
@@ -1336,7 +1464,7 @@ function App() {
     } finally {
       setScanning(false);
     }
-  }, [code, scanning]);
+  }, [code, language, scanning]);
 
   // Analyze uploaded file
   const runFileAnalysis = useCallback(async (file) => {
@@ -1403,13 +1531,13 @@ function App() {
                   </span>
                 )}
                 <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
-                  C · {code.split('\n').length} ln
+                  {language.toUpperCase()} · {code.split('\n').length} ln
                 </span>
               </div>
             </div>
             <EditorPanel
               code={code} setCode={setCode}
-              language={language} setLanguage={() => {}}
+              language={language} setLanguage={setLanguage}
               onAnalyze={runAnalysis}
               onFileUpload={runFileAnalysis}
               scanning={scanning}
