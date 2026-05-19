@@ -14,16 +14,20 @@ const app       = express();
 const PORT      = process.env.PORT || 3000;
 const ENGINE_C  = path.join(__dirname, 'vulncheck');
 const ENGINE_PY = path.join(__dirname, 'vulncheck_python.py');
-const PYTHON    = process.platform === 'win32' ? 'python' : 'python3';
-
-/* Verify Python is available at startup and warn early if not */
+/* Dynamically find whatever Python 3 binary is available */
 const { execSync } = require('child_process');
-(function checkPython() {
-  try { execSync(`${PYTHON} --version`, { stdio: 'ignore' }); }
-  catch (_) {
-    console.warn(`[warn] ${PYTHON} not found — Python analysis will be unavailable`);
+function findPython() {
+  const candidates = process.platform === 'win32'
+    ? ['python', 'python3', 'py']
+    : ['python3', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3.9', 'python'];
+  for (const cmd of candidates) {
+    try { execSync(`${cmd} --version`, { stdio: 'ignore' }); return cmd; }
+    catch (_) {}
   }
-})();
+  return null;
+}
+const PYTHON = findPython();
+console.log(PYTHON ? `[python] found: ${PYTHON}` : '[python] WARNING: no Python interpreter found — Python analysis disabled');
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -81,6 +85,9 @@ function runEngine(code) {
 }
 
 function runPythonEngine(code) {
+  if (!PYTHON) {
+    return Promise.reject(new Error('No Python 3 interpreter found on this server. Install Python 3 to enable Python analysis.'));
+  }
   return new Promise((resolve, reject) => {
     const tmp = path.join(os.tmpdir(), `vc_${Date.now()}_${Math.random().toString(36).slice(2)}.py`);
     fs.writeFileSync(tmp, code, 'utf8');
