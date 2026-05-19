@@ -299,59 +299,22 @@ function Tooltip({ text, children, side = 'top' }) {
 /* Skeleton Loaders                                                     */
 /* ------------------------------------------------------------------ */
 
-function Bone({ className = '' }) {
+function Skeleton({ className = '' }) {
   return (
-    <div className={`relative overflow-hidden rounded bg-[var(--bg-2)] border border-[var(--bd-1)]/40 ${className}`}>
-      <div className="shimmer absolute inset-0 w-3/4"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(124,255,205,0.05), transparent)' }}
-      />
-    </div>
+    <div
+      aria-hidden="true"
+      className={`animate-pulse rounded-md bg-[rgba(164,174,203,0.16)] ${className}`}
+    />
   );
 }
 
-function SkeletonSummaryBar() {
+function SkeletonDemo() {
   return (
-    <div className="panel reveal p-5 flex flex-col md:flex-row md:items-stretch gap-5">
-      <div className="flex items-center gap-4 md:pr-6 md:border-r border-[var(--bd-1)]">
-        <Bone className="w-16 h-16 !rounded-full" />
-        <div className="space-y-2">
-          <Bone className="w-20 h-2.5" />
-          <Bone className="w-36 h-4" />
-        </div>
-      </div>
-      <div className="flex-1 grid grid-cols-3 gap-3">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="bg-[var(--bg-1)]/50 border border-[var(--bd-1)] rounded-lg p-3.5">
-            <Bone className="w-14 h-5" />
-            <div className="flex items-end justify-between mt-3 gap-2">
-              <Bone className="w-14 h-7" />
-              <Bone className="w-8 h-9" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SkeletonFindingCard({ index = 0 }) {
-  return (
-    <div className="panel reveal p-5 md:p-6 space-y-4" style={{ animationDelay: `${index * 80}ms` }}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 space-y-2.5">
-          <div className="flex gap-2">
-            <Bone className="w-16 h-5" />
-            <Bone className="w-20 h-5" />
-            <Bone className="w-10 h-5" />
-          </div>
-          <Bone className="w-4/5 h-6" />
-        </div>
-        <Bone className="w-7 h-7 shrink-0" />
-      </div>
-      <Bone className="w-full h-16" />
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="space-y-1.5"><Bone className="w-28 h-2.5" /><Bone className="w-full h-12" /></div>
-        <div className="space-y-1.5"><Bone className="w-24 h-2.5" /><Bone className="w-full h-12" /></div>
+    <div className="flex items-center gap-4">
+      <Skeleton className="h-12 w-12 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <Skeleton className="h-4 w-full max-w-[250px]" />
+        <Skeleton className="h-4 w-full max-w-[200px]" />
       </div>
     </div>
   );
@@ -1499,12 +1462,9 @@ function App() {
 
             {/* Optimistic: show skeletons immediately while scanning */}
             {scanning && (
-              <>
-                <SkeletonSummaryBar />
-                <div className="space-y-4">
-                  {[0, 1, 2].map(i => <SkeletonFindingCard key={i} index={i} />)}
-                </div>
-              </>
+              <div className="panel reveal p-5">
+                <SkeletonDemo />
+              </div>
             )}
 
             {!scanning && findings === null && <EmptyState />}
